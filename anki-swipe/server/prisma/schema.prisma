@@ -24,16 +24,16 @@ model Group {
 }
 
 model Card {
-  id      String  @id
-  deckId  String
-  groupId String
+  id       String  @id
+  deckId   String
+  groupId  String
   groupKey String
-  script  String
-  romaji  String?
-  meaning String?
-  onyomi  String?
-  kunyomi String?
-  level   String?
+  script   String
+  romaji   String?
+  meaning  String?
+  onyomi   String?
+  kunyomi  String?
+  level    String?
 
   deck   Deck  @relation(fields: [deckId], references: [id])
   group  Group @relation(fields: [groupId], references: [id])
@@ -41,17 +41,17 @@ model Card {
 }
 
 model ReviewCard {
-  id           String   @id
-  cardId       String   @unique
-  deck         String
-  group        String
-  dueAt        DateTime
+  id            String   @id
+  cardId        String   @unique
+  deck          String
+  group         String
+  dueAt         DateTime
   intervalIndex Int
-  seen         Int
-  correct      Int
-  wrong        Int
-  lastAnswerMs Int
-  avgAnswerMs  Int
+  seen          Int
+  correct       Int
+  wrong         Int
+  lastAnswerMs  Int
+  avgAnswerMs   Int
 
   card Card @relation(fields: [cardId], references: [id])
 }
