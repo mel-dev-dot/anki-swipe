@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Deck {
+  id     String  @id
+  label  String
+  groups Group[]
+  cards  Card[]
+}
+
+model Group {
+  id     String @id
+  key    String
+  label  String
+  deckId String
+  deck   Deck   @relation(fields: [deckId], references: [id])
+  cards  Card[]
+}
+
+model Card {
+  id      String  @id
+  deckId  String
+  groupId String
+  groupKey String
+  script  String
+  romaji  String?
+  meaning String?
+  onyomi  String?
+  kunyomi String?
+  level   String?
+
+  deck   Deck  @relation(fields: [deckId], references: [id])
+  group  Group @relation(fields: [groupId], references: [id])
+  review ReviewCard?
+}
+
+model ReviewCard {
+  id           String   @id
+  cardId       String   @unique
+  deck         String
+  group        String
+  dueAt        DateTime
+  intervalIndex Int
+  seen         Int
+  correct      Int
+  wrong        Int
+  lastAnswerMs Int
+  avgAnswerMs  Int
+
+  card Card @relation(fields: [cardId], references: [id])
+}
