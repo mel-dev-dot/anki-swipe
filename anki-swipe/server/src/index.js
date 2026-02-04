@@ -70,6 +70,19 @@ const updateReviewCard = (record, isCorrect, answerMs) => {
   };
 };
 
+const DEFAULT_LEVELS = ["N5", "N4", "N3", "N2", "N1"];
+
+const mapLifecycleCard = (card) => ({
+  id: card.id,
+  script: card.script,
+  meaning: card.meaning,
+  level: card.groupKey,
+  order: card.order ?? 9999,
+  reviewCount: card.review?.seen ?? 0,
+  intervalDays: card.review?.intervalDays ?? 0,
+  lastReviewedAt: card.review?.lastReviewedAt ?? null,
+});
+
 app.get("/api/decks", async (_req, res) => {
   const decks = await prisma.deck.findMany({
     include: {
@@ -206,6 +219,70 @@ app.get("/api/kanji/learned", async (_req, res) => {
   res.json(response);
 });
 
+app.get("/api/kanji/lifecycle", async (req, res) => {
+  const levelsParam = String(req.query.levels || "")
+    .split(",")
+    .map((level) => level.trim())
+    .filter(Boolean);
+  const levels = levelsParam.length ? levelsParam : DEFAULT_LEVELS;
+
+  const cards = await prisma.card.findMany({
+    where: {
+      deckId: "kanji",
+      ...(levels.length ? { groupKey: { in: levels } } : {}),
+    },
+    include: { review: true },
+    orderBy: { order: "asc" },
+  });
+
+  const toLearn = [];
+  const learning = [];
+  const mastered = [];
+
+  for (const card of cards) {
+    const review = card.review;
+    if (!review || review.seen === 0) {
+      toLearn.push(mapLifecycleCard(card));
+    } else if ((review.intervalDays ?? 0) >= 10) {
+      mastered.push(mapLifecycleCard(card));
+    } else {
+      learning.push(mapLifecycleCard(card));
+    }
+  }
+
+  const lastReviewed = cards
+    .filter((card) => card.review?.lastReviewedAt)
+    .sort(
+      (a, b) =>
+        new Date(b.review.lastReviewedAt).getTime() -
+        new Date(a.review.lastReviewedAt).getTime()
+    )[0];
+
+  const suggestionTarget = toLearn[0];
+  const suggestion =
+    lastReviewed && suggestionTarget
+      ? {
+          from: mapLifecycleCard(lastReviewed),
+          to: suggestionTarget,
+          message: `You just reviewed “${lastReviewed.script}”. Want to learn “${suggestionTarget.script}” next? It’s ${suggestionTarget.level}.`,
+        }
+      : suggestionTarget
+        ? {
+            from: null,
+            to: suggestionTarget,
+            message: `Suggested next: “${suggestionTarget.script}” (${suggestionTarget.level}).`,
+          }
+        : null;
+
+  res.json({
+    levels,
+    toLearn,
+    learning,
+    mastered,
+    suggestion,
+  });
+});
+
 app.get("/api/review", async (_req, res) => {
   const review = await prisma.reviewCard.findMany();
   res.json(review);
@@ -301,7 +378,7 @@ app.post("/api/review/seed", async (_req, res) => {
     }));
 
   if (createList.length) {
-    await prisma.reviewCard.createMany({ data: createList });
+    await prisma.reviewCard.createMany({ data: createList, skipDuplicates: true });
   }
 
   res.json({ created: createList.length });
@@ -416,7 +493,7 @@ app.post("/api/review/add-group", async (req, res) => {
     }));
 
   if (createList.length) {
-    await prisma.reviewCard.createMany({ data: createList });
+    await prisma.reviewCard.createMany({ data: createList, skipDuplicates: true });
   }
 
   res.json({ created: createList.length });
@@ -463,7 +540,7 @@ app.post("/api/review/add-cards", async (req, res) => {
     }));
 
   if (createList.length) {
-    await prisma.reviewCard.createMany({ data: createList });
+    await prisma.reviewCard.createMany({ data: createList, skipDuplicates: true });
   }
 
   const maxOrder = cards.reduce((max, card) => {

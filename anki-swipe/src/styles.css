@@ -682,6 +682,163 @@ button:disabled {
   color: #fff;
 }
 
+.library-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 24px;
+}
+
+.library-sidebar {
+  background: rgba(20, 17, 30, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.sidebar-title {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 14px;
+}
+
+.level-options {
+  display: grid;
+  gap: 12px;
+}
+
+.level-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.library-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.library-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  background: rgba(20, 17, 30, 0.65);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.library-tab {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.library-tab.active {
+  background: rgba(255, 159, 104, 0.9);
+  color: #1e142d;
+}
+
+.ai-suggestion {
+  background: linear-gradient(135deg, rgba(255, 159, 104, 0.15), rgba(120, 93, 255, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.ai-tag {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.ai-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ai-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(20, 17, 30, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ai-kanji {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.ai-meta {
+  display: grid;
+}
+
+.ai-meaning {
+  font-weight: 600;
+}
+
+.ai-level {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.library-card {
+  background: rgba(20, 17, 30, 0.65);
+  border-radius: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 6px;
+}
+
+.library-card.mastered {
+  border-color: rgba(93, 229, 173, 0.5);
+}
+
+.library-card.learning {
+  border-color: rgba(255, 204, 102, 0.5);
+}
+
+.library-kanji {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.library-meaning {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.library-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+@media (max-width: 900px) {
+  .library-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .app {
     padding: 24px;

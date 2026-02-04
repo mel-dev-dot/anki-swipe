@@ -3,6 +3,7 @@ import { DECKS as FALLBACK_DECKS } from "./data/japanese.js";
 
 const API_BASE = "http://localhost:3001/api";
 const REVIEW_INTERVALS = [1, 2, 4, 7, 14, 30];
+const JLPT_LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 
 const now = () => Date.now();
 
@@ -286,6 +287,14 @@ export default function App() {
   const [reviewDeckId, setReviewDeckId] = useState("kanji");
   const [learnLevel, setLearnLevel] = useState("N5");
   const [learnError, setLearnError] = useState("");
+  const [lifecycleLevels, setLifecycleLevels] = useState(JLPT_LEVELS);
+  const [lifecycleTab, setLifecycleTab] = useState("toLearn");
+  const [lifecycleData, setLifecycleData] = useState({
+    toLearn: [],
+    learning: [],
+    mastered: [],
+    suggestion: null,
+  });
   const [settings, setSettings] = useState({
     newPerSession: 10,
     reviewLimit: 10,
@@ -335,6 +344,27 @@ export default function App() {
       setLearnedCards([]);
     }
   };
+
+  useEffect(() => {
+    if (view !== "library") return;
+    const loadLifecycle = async () => {
+      try {
+        const levelsParam = lifecycleLevels.length
+          ? lifecycleLevels.join(",")
+          : "";
+        const data = await fetchJSON(`/kanji/lifecycle?levels=${levelsParam}`);
+        setLifecycleData(data);
+      } catch (error) {
+        setLifecycleData({
+          toLearn: [],
+          learning: [],
+          mastered: [],
+          suggestion: null,
+        });
+      }
+    };
+    loadLifecycle();
+  }, [view, lifecycleLevels]);
 
   const startLearningSession = (cards, index = 0, mode = "normal") => {
     setSessionCards([...cards]);
@@ -550,6 +580,15 @@ export default function App() {
             }}
           >
             Anki Review
+          </button>
+          <button
+            className={`tab ${view === "library" ? "active" : ""}`}
+            onClick={() => {
+              setView("library");
+              setLifecycleTab("toLearn");
+            }}
+          >
+            Kanji Path
           </button>
           <button
             className={`tab ${view === "settings" ? "active" : ""}`}
@@ -824,6 +863,89 @@ export default function App() {
               </button>
             </>
           )}
+        </section>
+      )}
+
+      {view === "library" && (
+        <section className="panel">
+          <div className="library-shell">
+            <aside className="library-sidebar">
+              <div className="sidebar-title">JLPT Levels</div>
+              <div className="level-options">
+                {JLPT_LEVELS.map((level) => (
+                  <label key={level} className="level-check">
+                    <input
+                      type="checkbox"
+                      checked={lifecycleLevels.includes(level)}
+                      onChange={(event) => {
+                        const next = event.target.checked
+                          ? [...lifecycleLevels, level]
+                          : lifecycleLevels.filter((item) => item !== level);
+                        setLifecycleLevels(next);
+                      }}
+                    />
+                    <span>{level}</span>
+                  </label>
+                ))}
+              </div>
+            </aside>
+            <div className="library-main">
+              <div className="library-tabs">
+                <button
+                  className={`library-tab ${lifecycleTab === "toLearn" ? "active" : ""}`}
+                  onClick={() => setLifecycleTab("toLearn")}
+                >
+                  To Learn
+                </button>
+                <button
+                  className={`library-tab ${lifecycleTab === "learning" ? "active" : ""}`}
+                  onClick={() => setLifecycleTab("learning")}
+                >
+                  Currently Learning
+                </button>
+                <button
+                  className={`library-tab ${lifecycleTab === "mastered" ? "active" : ""}`}
+                  onClick={() => setLifecycleTab("mastered")}
+                >
+                  Mastered
+                </button>
+              </div>
+
+              {lifecycleTab === "toLearn" && lifecycleData.suggestion && (
+                <div className="ai-suggestion">
+                  <div className="ai-tag">Suggested by AI Tutor</div>
+                  <div className="ai-text">{lifecycleData.suggestion.message}</div>
+                  {lifecycleData.suggestion.to && (
+                    <div className="ai-card">
+                      <div className="ai-kanji">{lifecycleData.suggestion.to.script}</div>
+                      <div className="ai-meta">
+                        <div className="ai-meaning">{lifecycleData.suggestion.to.meaning}</div>
+                        <div className="ai-level">{lifecycleData.suggestion.to.level}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="library-grid">
+                {(lifecycleTab === "toLearn"
+                  ? lifecycleData.toLearn
+                  : lifecycleTab === "learning"
+                    ? lifecycleData.learning
+                    : lifecycleData.mastered
+                ).map((card) => (
+                  <div key={card.id} className={`library-card ${lifecycleTab}`}>
+                    <div className="library-kanji">{card.script}</div>
+                    <div className="library-meaning">{card.meaning}</div>
+                    <div className="library-meta">
+                      <span>{card.level}</span>
+                      <span>Reviews: {card.reviewCount}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
