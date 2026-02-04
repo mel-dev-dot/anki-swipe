@@ -188,6 +188,46 @@ app.post("/api/review/add-group", async (req, res) => {
   res.json({ created: createList.length });
 });
 
+app.post("/api/review/add-cards", async (req, res) => {
+  const { cardIds } = req.body;
+  if (!Array.isArray(cardIds) || cardIds.length === 0) {
+    res.status(400).json({ error: "cardIds required" });
+    return;
+  }
+
+  const cards = await prisma.card.findMany({
+    where: { id: { in: cardIds } },
+  });
+
+  const existing = await prisma.reviewCard.findMany({
+    where: { cardId: { in: cardIds } },
+    select: { cardId: true },
+  });
+  const existingSet = new Set(existing.map((item) => item.cardId));
+
+  const createList = cards
+    .filter((card) => !existingSet.has(card.id))
+    .map((card) => ({
+      id: `review-${card.id}`,
+      cardId: card.id,
+      deck: card.deckId,
+      group: card.groupKey,
+      intervalIndex: 0,
+      dueAt: new Date(),
+      seen: 0,
+      correct: 0,
+      wrong: 0,
+      lastAnswerMs: 0,
+      avgAnswerMs: 0,
+    }));
+
+  if (createList.length) {
+    await prisma.reviewCard.createMany({ data: createList });
+  }
+
+  res.json({ created: createList.length });
+});
+
 app.post("/api/review/answer", async (req, res) => {
   const { cardId, isCorrect, answerMs } = req.body;
   if (!cardId) {
