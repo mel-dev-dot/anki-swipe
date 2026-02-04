@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { PrismaClient } from "@prisma/client";
 import { generateEnrichment } from "./enrich.js";
+import { getRelatedKanji } from "./kanjiComponents.js";
 
 const prisma = new PrismaClient();
 const app = express();
@@ -258,21 +259,30 @@ app.get("/api/kanji/lifecycle", async (req, res) => {
         new Date(a.review.lastReviewedAt).getTime()
     )[0];
 
-  const suggestionTarget = toLearn[0];
-  const suggestion =
-    lastReviewed && suggestionTarget
-      ? {
-          from: mapLifecycleCard(lastReviewed),
-          to: suggestionTarget,
-          message: `You just reviewed “${lastReviewed.script}”. Want to learn “${suggestionTarget.script}” next? It’s ${suggestionTarget.level}.`,
-        }
-      : suggestionTarget
-        ? {
-            from: null,
-            to: suggestionTarget,
-            message: `Suggested next: “${suggestionTarget.script}” (${suggestionTarget.level}).`,
-          }
-        : null;
+  const suggestionTarget = (() => {
+    if (!lastReviewed) return null;
+    const related = getRelatedKanji(
+      lastReviewed.script,
+      toLearn.map((card) => card.script)
+    );
+    if (!related.length) return null;
+    const match = toLearn.find((card) => card.script === related[0].kanji);
+    if (match) return { card: match, reason: "related", overlap: related[0].overlap };
+    return null;
+  })();
+
+  const suggestion = suggestionTarget
+    ? {
+        from: lastReviewed ? mapLifecycleCard(lastReviewed) : null,
+        to: suggestionTarget.card,
+        message:
+          suggestionTarget.reason === "related" && lastReviewed
+            ? `You just learned “${lastReviewed.script}”. Want to learn “${suggestionTarget.card.script}” next? It shares components (${(suggestionTarget.overlap || []).join(
+                ", "
+              )}).`
+            : `Suggested next: “${suggestionTarget.card.script}” (${suggestionTarget.card.level}).`,
+      }
+    : null;
 
   res.json({
     levels,

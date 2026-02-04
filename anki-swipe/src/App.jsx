@@ -939,7 +939,6 @@ export default function App() {
                     <div className="library-meaning">{card.meaning}</div>
                     <div className="library-meta">
                       <span>{card.level}</span>
-                      <span>Reviews: {card.reviewCount}</span>
                     </div>
                   </div>
                 ))}
