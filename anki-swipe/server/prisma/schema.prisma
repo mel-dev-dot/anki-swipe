@@ -34,10 +34,32 @@ model Card {
   onyomi   String?
   kunyomi  String?
   level    String?
+  order    Int?
 
   deck   Deck  @relation(fields: [deckId], references: [id])
   group  Group @relation(fields: [groupId], references: [id])
   review ReviewCard?
+  examples SentenceExample[]
+  enrichment KanjiEnrichment?
+}
+
+model SentenceExample {
+  id             String @id
+  cardId         String
+  sentence       String
+  reading        String
+  readingReason  String?
+  romaji         String
+  translation    String
+  breakdown      Json?
+  grammarNotes   Json?
+
+  card Card @relation(fields: [cardId], references: [id])
+}
+
+model LearningProgress {
+  id        String @id
+  nextOrder Int
 }
 
 model ReviewCard {
@@ -46,12 +68,38 @@ model ReviewCard {
   deck          String
   group         String
   dueAt         DateTime
+  intervalDays  Int      @default(0)
+  ease          Float    @default(2.5)
+  reps          Int      @default(0)
+  lapses        Int      @default(0)
   intervalIndex Int
   seen          Int
   correct       Int
   wrong         Int
+  lastCorrect   Boolean  @default(true)
+  lastAnsweredAt DateTime @default(now())
+  lastReviewedAt DateTime @default(now())
   lastAnswerMs  Int
   avgAnswerMs   Int
+
+  card Card @relation(fields: [cardId], references: [id])
+}
+
+model KanjiEnrichment {
+  id                String   @id
+  cardId            String   @unique
+  source            String
+  model             String?
+  generatedAt       DateTime @default(now())
+  sentence          String
+  reading           String
+  readingReason     String?
+  romaji            String
+  translation       String
+  breakdown         Json?
+  grammarNotes      Json?
+  difficultyScore   Int?
+  difficultyNotes   String?
 
   card Card @relation(fields: [cardId], references: [id])
 }
