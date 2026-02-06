@@ -295,21 +295,39 @@ export const KANJI_LEVELS = [
         kunyomi: "ひ, -び, -か",
         romaji: "nichi, jitsu / hi, -bi, -ka",
         order: 4,
-        example: {
-          sentence: "今日はいい天気です。",
-          reading: "きょうはいいてんきです。",
-          readingReason: "日 is read as ひ in 今日 (きょう) for the word 'today'.",
-          romaji: "Kyou wa ii tenki desu.",
-          translation: "Today the weather is good.",
-          breakdown: [
-            { jp: "今日", romaji: "kyou", meaning: "today" },
-            { jp: "は", romaji: "wa", meaning: "topic marker" },
-            { jp: "いい", romaji: "ii", meaning: "good" },
-            { jp: "天気", romaji: "tenki", meaning: "weather" },
-            { jp: "です", romaji: "desu", meaning: "is (polite)" },
-          ],
-          grammarNotes: ["は is read as 'wa' as the topic marker."],
-        },
+        examples: [
+          {
+            sentence: "今日はいい天気です。",
+            reading: "きょうはいいてんきです。",
+            readingReason:
+              "今日 (きょう) is a special reading. Learn it as a whole word.",
+            romaji: "Kyou wa ii tenki desu.",
+            translation: "Today the weather is good.",
+            breakdown: [
+              { jp: "今日", romaji: "kyou", meaning: "today" },
+              { jp: "は", romaji: "wa", meaning: "topic marker" },
+              { jp: "いい", romaji: "ii", meaning: "good" },
+              { jp: "天気", romaji: "tenki", meaning: "weather" },
+              { jp: "です", romaji: "desu", meaning: "is (polite)" },
+            ],
+            grammarNotes: ["は is read as 'wa' as the topic marker."],
+          },
+          {
+            sentence: "今日、学校に行きます。",
+            reading: "きょう、がっこうにいきます。",
+            readingReason:
+              "今日 (きょう) is a special word meaning 'today'.",
+            romaji: "Kyou, gakkou ni ikimasu.",
+            translation: "Today, I go to school.",
+            breakdown: [
+              { jp: "今日", romaji: "kyou", meaning: "today" },
+              { jp: "学校", romaji: "gakkou", meaning: "school" },
+              { jp: "に", romaji: "ni", meaning: "to" },
+              { jp: "行きます", romaji: "ikimasu", meaning: "go (polite)" },
+            ],
+            grammarNotes: [],
+          },
+        ],
       },
       {
         id: "n5-月",

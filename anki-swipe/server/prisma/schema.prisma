@@ -76,6 +76,7 @@ model ReviewCard {
   seen          Int
   correct       Int
   wrong         Int
+  learningStep  Int      @default(0)
   lastCorrect   Boolean  @default(true)
   lastAnsweredAt DateTime @default(now())
   lastReviewedAt DateTime @default(now())

@@ -28,6 +28,36 @@ const formatNextReview = (dueAt) => {
   return `${days} days`;
 };
 
+const ratingLabel = (rating) => {
+  switch (rating) {
+    case 2:
+      return "Again";
+    case 3:
+      return "Hard";
+    case 4:
+      return "Good";
+    case 5:
+      return "Easy";
+    default:
+      return "Review";
+  }
+};
+
+const ratingClass = (rating) => {
+  switch (rating) {
+    case 2:
+      return "again";
+    case 3:
+      return "hard";
+    case 4:
+      return "good";
+    case 5:
+      return "easy";
+    default:
+      return "";
+  }
+};
+
 const fetchJSON = async (path, options) => {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -65,51 +95,56 @@ const highlightKanji = (sentence, kanji) => {
   );
 };
 
-const ExampleSentence = ({ example, kanji }) => {
-  if (!example) return null;
+const ExampleSentence = ({ examples, kanji }) => {
+  if (!examples || examples.length === 0) return null;
 
   return (
-    <div className="example">
-      <div
-        className="example-jp"
-        dangerouslySetInnerHTML={{
-          __html: highlightKanji(example.sentence, kanji),
-        }}
-      />
-      <div className="example-reading">
-        <div className="label">Reading</div>
-        <div>{example.reading}</div>
-        {example.readingReason && (
-          <div className="note">{example.readingReason}</div>
-        )}
-      </div>
-      <div className="example-romaji">{example.romaji}</div>
-      <div className="example-translation">{example.translation}</div>
-      {example.breakdown?.length ? (
-        <div className="breakdown">
-          <div className="label">Breakdown</div>
-          <div className="breakdown-grid">
-            {example.breakdown.map((item, index) => (
-              <div key={`${item.jp}-${index}`} className="breakdown-item">
-                <div className="jp">{item.jp}</div>
-                <div className="romaji">{item.romaji}</div>
-                <div className="meaning">{item.meaning}</div>
-              </div>
-            ))}
+    <>
+      {examples.slice(0, 2).map((example, idx) => (
+        <div key={`${example.sentence}-${idx}`} className="example">
+          <div className="example-label">Example {idx + 1}</div>
+          <div
+            className="example-jp"
+            dangerouslySetInnerHTML={{
+              __html: highlightKanji(example.sentence, kanji),
+            }}
+          />
+          <div className="example-reading">
+            <div className="label">Reading</div>
+            <div>{example.reading}</div>
+            {example.readingReason && (
+              <div className="note">{example.readingReason}</div>
+            )}
           </div>
+          <div className="example-romaji">{example.romaji}</div>
+          <div className="example-translation">{example.translation}</div>
+          {example.breakdown?.length ? (
+            <div className="breakdown">
+              <div className="label">Breakdown</div>
+              <div className="breakdown-grid">
+                {example.breakdown.map((item, index) => (
+                  <div key={`${item.jp}-${index}`} className="breakdown-item">
+                    <div className="jp">{item.jp}</div>
+                    <div className="romaji">{item.romaji}</div>
+                    <div className="meaning">{item.meaning}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {example.grammarNotes?.length ? (
+            <div className="grammar">
+              <div className="label">Grammar notes</div>
+              <ul>
+                {example.grammarNotes.map((note, index) => (
+                  <li key={`${note}-${index}`}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {example.grammarNotes?.length ? (
-        <div className="grammar">
-          <div className="label">Grammar notes</div>
-          <ul>
-            {example.grammarNotes.map((note, index) => (
-              <li key={`${note}-${index}`}>{note}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
+      ))}
+    </>
   );
 };
 
@@ -121,7 +156,7 @@ const splitRomaji = (romaji) => {
   return { on, kun };
 };
 
-const LearnCard = ({ card, onNext }) => {
+const LearnCard = ({ card, onNext, onPrev, canPrev, canNext }) => {
   if (!card) return null;
   const { on, kun } = splitRomaji(card.romaji);
   const [isSwiping, setIsSwiping] = useState(false);
@@ -131,6 +166,7 @@ const LearnCard = ({ card, onNext }) => {
   }, [card?.id]);
 
   const handleNext = () => {
+    if (!canNext) return;
     setIsSwiping(true);
     window.setTimeout(() => {
       setIsSwiping(false);
@@ -140,12 +176,12 @@ const LearnCard = ({ card, onNext }) => {
 
   return (
     <div className="learn-shell">
-      <div
-        className={`learn-card ${isSwiping ? "is-swiping" : ""}`}
-        onClick={handleNext}
-        role="button"
-        tabIndex={0}
-      >
+      <div className="learn-deck">
+        <div className="card-stack-bg one" />
+        <div className="card-stack-bg two" />
+        <div
+          className={`learn-card ${isSwiping ? "is-swiping" : ""}`}
+        >
         <div className="learn-header">
           <div className="kanji-glyph">{card.script}</div>
           <div className="kanji-meta">
@@ -158,13 +194,31 @@ const LearnCard = ({ card, onNext }) => {
             </div>
           </div>
         </div>
-        <ExampleSentence example={card.example} kanji={card.script} />
-        <button className="next-fab" onClick={handleNext} aria-label="Next kanji">
+        <ExampleSentence examples={card.examples} kanji={card.script} />
+        </div>
+        <button
+          className={`learn-nav prev ${canPrev ? "" : "disabled"}`}
+          type="button"
+          onClick={() => {
+            if (canPrev) onPrev();
+          }}
+          aria-label="Previous kanji"
+          disabled={!canPrev}
+        >
+          ←
+        </button>
+        <button
+          className={`learn-nav next ${canNext ? "" : "disabled"}`}
+          type="button"
+          onClick={handleNext}
+          aria-label="Next kanji"
+          disabled={!canNext}
+        >
           →
         </button>
       </div>
       <div className="learn-actions">
-        <span className="learn-hint">Tap card or press Next</span>
+        <span className="learn-hint">Use arrows to navigate</span>
       </div>
     </div>
   );
@@ -182,9 +236,11 @@ const SwipeCard = ({
   const startPos = useRef({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const [exitDir, setExitDir] = useState(null);
 
   useEffect(() => {
     setOffset({ x: 0, y: 0 });
+    setExitDir(null);
   }, [card?.id]);
 
   useEffect(() => {
@@ -195,10 +251,10 @@ const SwipeCard = ({
         onReveal();
       }
       if (!answerReady) return;
-      if (event.key === "1") onAnswer(2);
-      if (event.key === "2") onAnswer(3);
-      if (event.key === "3") onAnswer(4);
-      if (event.key === "4") onAnswer(5);
+      if (event.key === "1") handleAnswer(2);
+      if (event.key === "2") handleAnswer(3);
+      if (event.key === "3") handleAnswer(4);
+      if (event.key === "4") handleAnswer(5);
     };
 
     window.addEventListener("keydown", handleKey);
@@ -226,19 +282,32 @@ const SwipeCard = ({
       setOffset({ x: 0, y: 0 });
       return;
     }
-    if (offset.x > 120) onAnswer(4);
-    else if (offset.x < -120) onAnswer(2);
+    if (offset.x > 120) handleAnswer(4);
+    else if (offset.x < -120) handleAnswer(2);
     else setOffset({ x: 0, y: 0 });
   };
 
-  const rotation = offset.x / 12;
+  const handleAnswer = (rating) => {
+    if (!answerReady) return;
+    const dir = rating >= 4 ? 1 : -1;
+    setExitDir(dir);
+    window.setTimeout(() => {
+      setExitDir(null);
+      onAnswer(rating);
+    }, 220);
+  };
+
+  const effectiveX = exitDir ? exitDir * 420 : offset.x;
+  const rotation = effectiveX / 18;
 
   return (
-    <div className="card-shell">
+    <div className="card-shell deck">
+      <div className="card-stack-bg one" />
+      <div className="card-stack-bg two" />
       <div
         className={`card ${answerReady ? "can-answer" : "needs-reveal"}`}
         style={{
-          transform: `translate(${offset.x}px, ${offset.y}px) rotate(${rotation}deg)`,
+          transform: `translate(${effectiveX}px, ${offset.y}px) rotate(${rotation}deg)`,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -278,16 +347,16 @@ const SwipeCard = ({
         <button className="ghost" onClick={onReveal}>
           {answerReady ? "Hide" : "Reveal"}
         </button>
-        <button className="danger" disabled={!answerReady} onClick={() => onAnswer(2)}>
+        <button className="danger" disabled={!answerReady} onClick={() => handleAnswer(2)}>
           Again
         </button>
-        <button className="warn" disabled={!answerReady} onClick={() => onAnswer(3)}>
+        <button className="warn" disabled={!answerReady} onClick={() => handleAnswer(3)}>
           Hard
         </button>
-        <button className="success" disabled={!answerReady} onClick={() => onAnswer(4)}>
+        <button className="success" disabled={!answerReady} onClick={() => handleAnswer(4)}>
           Good
         </button>
-        <button className="easy" disabled={!answerReady} onClick={() => onAnswer(5)}>
+        <button className="easy" disabled={!answerReady} onClick={() => handleAnswer(5)}>
           Easy
         </button>
       </div>
@@ -478,7 +547,7 @@ export default function App() {
     const isCorrect = rating >= 3;
 
     setReviewAnswered((prev) => Math.min(prev + 1, sessionCards.length));
-    setReviewResults((prev) => [...prev, { id: card.id, correct: isCorrect, viewed: false }]);
+    setReviewResults((prev) => [...prev, { id: card.id, rating, viewed: false }]);
 
     try {
       const updated = await fetchJSON("/review/answer", {
@@ -520,7 +589,7 @@ export default function App() {
     setReviewAnswered((prev) => Math.min(prev + 1, sessionCards.length));
     const card = sessionCards[sessionIndex];
     if (card) {
-      setReviewResults((prev) => [...prev, { id: card.id, correct: false, viewed: false }]);
+      setReviewResults((prev) => [...prev, { id: card.id, rating: 2, viewed: false }]);
     }
     if (sessionIndex + 1 >= sessionCards.length) {
       setReviewStep("complete");
@@ -528,6 +597,18 @@ export default function App() {
     }
     setSessionIndex((prev) => prev + 1);
     setSessionStartedAt(now());
+  };
+
+  const openKanjiCard = async (cardId) => {
+    try {
+      const card = await fetchJSON(`/kanji/card/${cardId}`);
+      startLearningSession([card]);
+      setLearningReturn({ view: "library" });
+      setView("learn");
+      setLearnStep("session");
+    } catch (error) {
+      // ignore for now
+    }
   };
 
   const onLearnNext = async () => {
@@ -565,6 +646,10 @@ export default function App() {
       return;
     }
     setSessionIndex((prev) => prev + 1);
+  };
+
+  const onLearnPrev = () => {
+    setSessionIndex((prev) => Math.max(0, prev - 1));
   };
 
   const seedAllToReview = () =>
@@ -779,7 +864,9 @@ export default function App() {
                     onClick={() => {
                       if (learningReturn) {
                         setView(learningReturn.view);
-                        setReviewStep(learningReturn.step);
+                        if (learningReturn.view === "review") {
+                          setReviewStep(learningReturn.step);
+                        }
                         setLearningReturn(null);
                         return;
                       }
@@ -793,6 +880,9 @@ export default function App() {
               <LearnCard
                 card={sessionCards[sessionIndex]}
                 onNext={onLearnNext}
+                onPrev={onLearnPrev}
+                canPrev={sessionIndex > 0}
+                canNext={sessionIndex + 1 < sessionCards.length}
               />
               <div className="banner">
                 New Kanji this session: {sessionCards.length}
@@ -896,10 +986,12 @@ export default function App() {
                   .sort((a, b) => (a.card.order ?? 9999) - (b.card.order ?? 9999))
                   .map(({ result, card, index }) => {
                   if (!card) return null;
+                  const label = ratingLabel(result.rating);
+                  const statusClass = ratingClass(result.rating);
                   return (
                     <button
                       key={`${result.id}-${index}`}
-                      className={`result-card ${result.correct ? "correct" : "incorrect"} ${result.viewed ? "viewed" : ""}`}
+                      className={`result-card ${result.viewed ? "viewed" : ""}`}
                       onClick={() => {
                         const target = learnedCards.find((item) => item.id === result.id) || card;
                         if (!target) return;
@@ -921,9 +1013,7 @@ export default function App() {
                     >
                       <span className="result-kanji">{card.script}</span>
                       <span className="result-meaning">{card.meaning}</span>
-                      <span className={`result-status ${result.correct ? "correct" : "incorrect"}`}>
-                        {result.correct ? "Correct" : "Incorrect"}
-                      </span>
+                      <span className={`result-status ${statusClass}`}>{label}</span>
                     </button>
                   );
                 })}
@@ -1023,13 +1113,17 @@ export default function App() {
                     ? lifecycleData.learning
                     : lifecycleData.mastered
                 ).map((card) => (
-                  <div key={card.id} className={`library-card ${lifecycleTab}`}>
+                  <button
+                    key={card.id}
+                    className={`library-card ${lifecycleTab}`}
+                    onClick={() => openKanjiCard(card.id)}
+                  >
                     <div className="library-kanji">{card.script}</div>
                     <div className="library-meaning">{card.meaning}</div>
                     <div className="library-meta">
                       <span>{card.level}</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

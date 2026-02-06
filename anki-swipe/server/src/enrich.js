@@ -15,6 +15,7 @@ Return JSON with:
   "sentence": "...",
   "reading": "...",
   "readingReason": "...",
+  "readingUsed": "...", 
   "romaji": "...",
   "translation": "...",
   "breakdown": [{"jp":"...","romaji":"...","meaning":"..."}],
@@ -28,6 +29,29 @@ const parseJSON = (text) => {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("Empty response");
   return JSON.parse(trimmed);
+};
+
+const toHiragana = (text = "") =>
+  text.replace(/[ァ-ン]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+
+const normalizeReading = (text = "") =>
+  toHiragana(text)
+    .replace(/[.\-]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+
+const splitReadings = (text = "") =>
+  text
+    .split(/[,/]/)
+    .map((part) => normalizeReading(part))
+    .filter(Boolean);
+
+const isReadingAllowed = (readingUsed, card) => {
+  if (!readingUsed) return false;
+  const onyomi = splitReadings(card.onyomi || "");
+  const kunyomi = splitReadings(card.kunyomi || "");
+  const allowed = new Set([...onyomi, ...kunyomi]);
+  return allowed.has(normalizeReading(readingUsed));
 };
 
 export const generateEnrichment = async (card, level) => {
@@ -47,6 +71,11 @@ export const generateEnrichment = async (card, level) => {
 
   const outputText = response.output_text ?? "";
   const payload = parseJSON(outputText);
+
+  if (!isReadingAllowed(payload.readingUsed, card)) {
+    payload.readingReason =
+      "This word has a special reading in this sentence (jukujikun). Learn it as vocabulary.";
+  }
 
   return {
     sentence: payload.sentence,

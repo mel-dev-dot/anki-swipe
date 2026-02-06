@@ -14,6 +14,8 @@ const MIN_EASE = 1.3;
 const now = () => Date.now();
 const EASY_MS = 4000;
 const GOOD_MS = 8000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const LEARNING_STEPS_MINUTES = [10, 60, 240]; // 3x in a day
 
 const normalizeRating = (rating, answerMs, isCorrect) => {
   if (typeof rating === "number" && rating > 0) return rating;
@@ -33,23 +35,53 @@ const updateReviewCard = (record, rating, answerMs) => {
   let intervalDays = record.intervalDays ?? 0;
   let reps = record.reps ?? 0;
   let lapses = record.lapses ?? 0;
+  let learningStep = record.learningStep ?? 0;
   const q = rating;
 
-  if (q < 3) {
-    lapses += 1;
-    reps = 0;
-    intervalDays = 1;
-    ease = Math.max(MIN_EASE, ease - 0.2);
-  } else {
-    reps += 1;
-    if (reps === 1) intervalDays = 1;
-    else if (reps === 2) intervalDays = 6;
-    else intervalDays = Math.max(1, Math.round(intervalDays * ease));
-    ease = ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
-    if (ease < MIN_EASE) ease = MIN_EASE;
-  }
+  const inLearning = reps === 0 || learningStep < LEARNING_STEPS_MINUTES.length;
+  let dueAt;
 
-  const dueAt = new Date(now() + intervalDays * 24 * 60 * 60 * 1000);
+  if (inLearning) {
+    if (q < 3) {
+      lapses += 1;
+      reps = 0;
+      learningStep = 0;
+      intervalDays = 0;
+      ease = Math.max(MIN_EASE, ease - 0.2);
+      dueAt = new Date(now() + LEARNING_STEPS_MINUTES[0] * 60 * 1000);
+    } else {
+      if (learningStep < LEARNING_STEPS_MINUTES.length - 1) {
+        learningStep += 1;
+        intervalDays = 0;
+        dueAt = new Date(now() + LEARNING_STEPS_MINUTES[learningStep] * 60 * 1000);
+      } else {
+        // graduate
+        reps = 1;
+        learningStep = LEARNING_STEPS_MINUTES.length;
+        intervalDays = q >= 5 ? 2 : 1;
+        dueAt = new Date(now() + intervalDays * DAY_MS);
+      }
+      ease = ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+      if (ease < MIN_EASE) ease = MIN_EASE;
+    }
+  } else {
+    if (q < 3) {
+      lapses += 1;
+      reps = 0;
+      learningStep = 0;
+      intervalDays = 0;
+      ease = Math.max(MIN_EASE, ease - 0.2);
+      dueAt = new Date(now() + LEARNING_STEPS_MINUTES[0] * 60 * 1000);
+    } else {
+      reps += 1;
+      if (reps === 1) intervalDays = 1;
+      else if (reps === 2) intervalDays = 6;
+      else intervalDays = Math.max(1, Math.round(intervalDays * ease));
+      ease = ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+      if (ease < MIN_EASE) ease = MIN_EASE;
+      dueAt = new Date(now() + intervalDays * DAY_MS);
+    }
+  }
   const avgAnswerMs =
     record.avgAnswerMs === 0
       ? answerMs
@@ -65,6 +97,7 @@ const updateReviewCard = (record, rating, answerMs) => {
     reps,
     lapses,
     dueAt,
+    learningStep,
     lastCorrect: isCorrect,
     lastAnsweredAt: new Date(),
     lastReviewedAt: new Date(),
@@ -159,10 +192,12 @@ app.get("/api/kanji/learn", async (req, res) => {
 
   const response = cards
     .map((card) => {
-      const example = card.examples[0]
-        ? mapExample(card.examples[0])
-        : mapExample(card.enrichment);
-      if (!example) return null;
+      const examples = card.examples?.length
+        ? card.examples.map(mapExample)
+        : card.enrichment
+          ? [mapExample(card.enrichment)]
+          : [];
+      if (!examples.length) return null;
       return {
         id: card.id,
         deck: card.deckId,
@@ -173,7 +208,7 @@ app.get("/api/kanji/learn", async (req, res) => {
         onyomi: card.onyomi,
         kunyomi: card.kunyomi,
         order: card.order,
-        example,
+        examples,
       };
     })
     .filter(Boolean);
@@ -200,10 +235,12 @@ app.get("/api/kanji/learned", async (_req, res) => {
 
   const response = cards
     .map((card) => {
-      const example = card.examples[0]
-        ? mapExample(card.examples[0])
-        : mapExample(card.enrichment);
-      if (!example) return null;
+      const examples = card.examples?.length
+        ? card.examples.map(mapExample)
+        : card.enrichment
+          ? [mapExample(card.enrichment)]
+          : [];
+      if (!examples.length) return null;
       return {
         id: card.id,
         deck: card.deckId,
@@ -214,12 +251,43 @@ app.get("/api/kanji/learned", async (_req, res) => {
         onyomi: card.onyomi,
         kunyomi: card.kunyomi,
         order: card.order,
-        example,
+        examples,
       };
     })
     .filter(Boolean);
 
   res.json(response);
+});
+
+app.get("/api/kanji/card/:id", async (req, res) => {
+  const { id } = req.params;
+  const card = await prisma.card.findUnique({
+    where: { id },
+    include: { examples: true, enrichment: true },
+  });
+  if (!card) {
+    res.status(404).json({ error: "card not found" });
+    return;
+  }
+
+  const examples = card.examples?.length
+    ? card.examples.map(mapExample)
+    : card.enrichment
+      ? [mapExample(card.enrichment)]
+      : [];
+
+  res.json({
+    id: card.id,
+    deck: card.deckId,
+    group: card.groupKey,
+    script: card.script,
+    romaji: card.romaji,
+    meaning: card.meaning,
+    onyomi: card.onyomi,
+    kunyomi: card.kunyomi,
+    order: card.order,
+    examples,
+  });
 });
 
 app.get("/api/kanji/lifecycle", async (req, res) => {
@@ -378,6 +446,7 @@ app.post("/api/review/seed", async (_req, res) => {
       ease: 2.5,
       reps: 0,
       lapses: 0,
+      learningStep: 0,
       dueAt: new Date(),
       seen: 0,
       correct: 0,
@@ -493,6 +562,7 @@ app.post("/api/review/add-group", async (req, res) => {
       ease: 2.5,
       reps: 0,
       lapses: 0,
+      learningStep: 0,
       dueAt: new Date(),
       seen: 0,
       correct: 0,
@@ -540,6 +610,7 @@ app.post("/api/review/add-cards", async (req, res) => {
       ease: 2.5,
       reps: 0,
       lapses: 0,
+      learningStep: 0,
       dueAt: new Date(),
       seen: 0,
       correct: 0,
@@ -603,6 +674,7 @@ app.post("/api/review/answer", async (req, res) => {
         ease: 2.5,
         reps: 0,
         lapses: 0,
+        learningStep: 0,
         dueAt: new Date(),
         seen: 0,
         correct: 0,

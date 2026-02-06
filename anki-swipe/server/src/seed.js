@@ -59,18 +59,25 @@ const seed = async () => {
           },
         });
 
-        if (card.example) {
+        const exampleList = Array.isArray(card.examples)
+          ? card.examples
+          : card.example
+            ? [card.example]
+            : [];
+
+        for (let index = 0; index < exampleList.length; index += 1) {
+          const example = exampleList[index];
           await prisma.sentenceExample.create({
             data: {
-              id: `${card.id}-ex-1`,
+              id: `${card.id}-ex-${index + 1}`,
               cardId: card.id,
-              sentence: card.example.sentence,
-              reading: card.example.reading,
-              readingReason: card.example.readingReason ?? null,
-              romaji: card.example.romaji,
-              translation: card.example.translation,
-              breakdown: card.example.breakdown ?? null,
-              grammarNotes: card.example.grammarNotes ?? null,
+              sentence: example.sentence,
+              reading: example.reading,
+              readingReason: example.readingReason ?? null,
+              romaji: example.romaji,
+              translation: example.translation,
+              breakdown: example.breakdown ?? null,
+              grammarNotes: example.grammarNotes ?? null,
             },
           });
         }
