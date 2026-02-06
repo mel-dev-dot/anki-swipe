@@ -345,6 +345,10 @@ p {
   pointer-events: none;
 }
 
+.learn-nav:hover {
+  transform: translateY(-50%);
+}
+
 .learn-header {
   display: flex;
   gap: 24px;

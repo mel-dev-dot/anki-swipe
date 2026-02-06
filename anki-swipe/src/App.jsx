@@ -156,7 +156,7 @@ const splitRomaji = (romaji) => {
   return { on, kun };
 };
 
-const LearnCard = ({ card, onNext, onPrev, canPrev, canNext }) => {
+const LearnCard = ({ card, onNext, onPrev, canPrev, canNext, queueCount }) => {
   if (!card) return null;
   const { on, kun } = splitRomaji(card.romaji);
   const [isSwiping, setIsSwiping] = useState(false);
@@ -177,8 +177,17 @@ const LearnCard = ({ card, onNext, onPrev, canPrev, canNext }) => {
   return (
     <div className="learn-shell">
       <div className="learn-deck">
-        <div className="card-stack-bg one" />
-        <div className="card-stack-bg two" />
+        {Array.from({ length: Math.max(0, Math.min(queueCount, 4)) }).map((_, idx) => (
+          <div
+            key={`stack-${idx}`}
+            className="card-stack-bg"
+            style={{
+              transform: `translate(${(idx + 1) * 12}px, ${(idx + 1) * 12}px) scale(${1 -
+                (idx + 1) * 0.015})`,
+              opacity: 0.45 - idx * 0.08,
+            }}
+          />
+        ))}
         <div
           className={`learn-card ${isSwiping ? "is-swiping" : ""}`}
         >
@@ -882,7 +891,8 @@ export default function App() {
                 onNext={onLearnNext}
                 onPrev={onLearnPrev}
                 canPrev={sessionIndex > 0}
-                canNext={sessionIndex + 1 < sessionCards.length}
+                canNext={sessionCards.length > 0}
+                queueCount={Math.max(0, sessionCards.length - sessionIndex - 1)}
               />
               <div className="banner">
                 New Kanji this session: {sessionCards.length}
