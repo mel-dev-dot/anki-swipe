@@ -16,6 +16,18 @@ const shuffleList = (list) => {
   return copy;
 };
 
+const formatNextReview = (dueAt) => {
+  if (!dueAt) return "";
+  const diffMs = new Date(dueAt).getTime() - now();
+  if (diffMs <= 0) return "Now";
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} hrs`;
+  const days = Math.round(hours / 24);
+  return `${days} days`;
+};
+
 const fetchJSON = async (path, options) => {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -165,6 +177,7 @@ const SwipeCard = ({
   answerReady,
   onSkip,
   reviewSettings,
+  nextReviewHint,
 }) => {
   const startPos = useRef({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -182,8 +195,10 @@ const SwipeCard = ({
         onReveal();
       }
       if (!answerReady) return;
-      if (event.key === "ArrowRight") onAnswer(true);
-      if (event.key === "ArrowLeft") onAnswer(false);
+      if (event.key === "1") onAnswer(2);
+      if (event.key === "2") onAnswer(3);
+      if (event.key === "3") onAnswer(4);
+      if (event.key === "4") onAnswer(5);
     };
 
     window.addEventListener("keydown", handleKey);
@@ -211,8 +226,8 @@ const SwipeCard = ({
       setOffset({ x: 0, y: 0 });
       return;
     }
-    if (offset.x > 120) onAnswer(true);
-    else if (offset.x < -120) onAnswer(false);
+    if (offset.x > 120) onAnswer(4);
+    else if (offset.x < -120) onAnswer(2);
     else setOffset({ x: 0, y: 0 });
   };
 
@@ -232,41 +247,53 @@ const SwipeCard = ({
       >
         <div className="card-face">
           <div className="card-script">{card?.script}</div>
-          {answerReady ? (
-            <div className="card-details">
+          <div className="card-stack">
+            <div className={`card-prompt ${answerReady ? "hidden" : ""}`}>
+              {card?.deck === "kanji" ? "Meaning + Readings" : "Say the sound"}
+            </div>
+            <div className={`card-details ${answerReady ? "visible" : ""}`}>
               {card?.deck === "kanji" && (
                 <>
-                  <div className="detail">{card.meaning}</div>
+                  <div className="detail meaning">{card.meaning}</div>
                   {reviewSettings?.showOn && (
-                    <div className="detail">On: {card.onyomi}</div>
+                    <div className="detail-line">
+                      <span className="detail-label">On:</span> {card.onyomi}
+                    </div>
                   )}
                   {reviewSettings?.showKun && (
-                    <div className="detail">Kun: {card.kunyomi}</div>
+                    <div className="detail-line">
+                      <span className="detail-label">Kun:</span> {card.kunyomi}
+                    </div>
                   )}
                   {reviewSettings?.showRomaji && card.romaji && (
-                    <div className="detail">{card.romaji}</div>
+                    <div className="detail-line romaji">{card.romaji}</div>
                   )}
                 </>
               )}
             </div>
-          ) : (
-            <div className="card-prompt">
-              {card?.deck === "kanji" ? "Meaning + Readings" : "Say the sound"}
-            </div>
-          )}
+          </div>
         </div>
       </div>
       <div className="card-actions">
         <button className="ghost" onClick={onReveal}>
           {answerReady ? "Hide" : "Reveal"}
         </button>
-        <button className="danger" disabled={!answerReady} onClick={() => onAnswer(false)}>
-          Wrong
+        <button className="danger" disabled={!answerReady} onClick={() => onAnswer(2)}>
+          Again
         </button>
-        <button className="success" disabled={!answerReady} onClick={() => onAnswer(true)}>
-          Right
+        <button className="warn" disabled={!answerReady} onClick={() => onAnswer(3)}>
+          Hard
+        </button>
+        <button className="success" disabled={!answerReady} onClick={() => onAnswer(4)}>
+          Good
+        </button>
+        <button className="easy" disabled={!answerReady} onClick={() => onAnswer(5)}>
+          Easy
         </button>
       </div>
+      {answerReady && nextReviewHint ? (
+        <div className="card-hint">Next review in: {nextReviewHint}</div>
+      ) : null}
       <div className="card-meta">
         <button className="link" onClick={onSkip}>
           Skip
@@ -311,6 +338,8 @@ export default function App() {
   const [reviewResults, setReviewResults] = useState([]);
   const [learningReturn, setLearningReturn] = useState(null);
   const [learningMode, setLearningMode] = useState("normal");
+  const [autoLevel, setAutoLevel] = useState(true);
+  const [nextReviewHint, setNextReviewHint] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -387,7 +416,29 @@ export default function App() {
   };
   const loadKanjiLesson = async () => {
     try {
-      const cards = await fetchJSON(`/kanji/learn?limit=${settings.newPerSession}&level=${learnLevel}`);
+      let level = learnLevel;
+      if (autoLevel) {
+        const levels = JLPT_LEVELS;
+        for (const candidate of levels) {
+          const probe = await fetchJSON(`/kanji/learn?limit=1&level=${candidate}`);
+          if (probe.length) {
+            level = candidate;
+            setLearnLevel(candidate);
+            break;
+          }
+        }
+      }
+
+      const primary = await fetchJSON(
+        `/kanji/learn?limit=${settings.newPerSession}&level=${level}`
+      );
+      let cards = [...primary];
+      if (cards.length < settings.newPerSession) {
+        const missing = settings.newPerSession - cards.length;
+        const fallback = await fetchJSON(`/kanji/learn?limit=${missing}`);
+        const existing = new Set(cards.map((card) => card.id));
+        cards = [...cards, ...fallback.filter((card) => !existing.has(card.id))];
+      }
       if (!cards.length) {
         setLearnError(`No kanji available for ${learnLevel} yet.`);
         setLearnStep("complete");
@@ -405,8 +456,10 @@ export default function App() {
   const onStartReview = async (targetDeckId = "kanji") => {
     setReviewDeckId(targetDeckId);
     try {
-      const query = targetDeckId ? `?deckId=${targetDeckId}` : "";
-      const dueCards = await fetchJSON(`/review/due${query}&limit=${settings.reviewLimit}`);
+      const query = targetDeckId ? `deckId=${targetDeckId}` : "";
+      const params = new URLSearchParams(query ? { deckId: targetDeckId } : {});
+      params.set("limit", settings.reviewLimit);
+      const dueCards = await fetchJSON(`/review/due?${params.toString()}`);
       if (!dueCards.length) {
         setReviewStep("empty");
         return;
@@ -418,10 +471,11 @@ export default function App() {
     }
   };
 
-  const onAnswer = async (isCorrect) => {
+  const onAnswer = async (rating) => {
     const card = sessionCards[sessionIndex];
     if (!card) return;
     const answerMs = now() - sessionStartedAt;
+    const isCorrect = rating >= 3;
 
     setReviewAnswered((prev) => Math.min(prev + 1, sessionCards.length));
     setReviewResults((prev) => [...prev, { id: card.id, correct: isCorrect, viewed: false }]);
@@ -432,10 +486,12 @@ export default function App() {
         body: JSON.stringify({
           cardId: card.id,
           isCorrect,
+          rating,
           answerMs,
         }),
       });
       setReviewCards((prev) => ({ ...prev, [updated.cardId]: updated }));
+      setNextReviewHint(formatNextReview(updated.dueAt));
       setSessionCards((prev) => {
         const next = [...prev];
         if (next[sessionIndex]) {
@@ -449,6 +505,7 @@ export default function App() {
 
     setSessionStartedAt(now());
     setReveal(false);
+    setNextReviewHint("");
     if (sessionIndex + 1 >= sessionCards.length) {
       setReviewStep("complete");
       return;
@@ -550,6 +607,19 @@ export default function App() {
     return (reviewAnswered / sessionCards.length) * 100;
   }, [sessionCards.length, reviewAnswered]);
 
+  const levelStats = useMemo(() => {
+    const levels = lifecycleLevels.length ? lifecycleLevels : JLPT_LEVELS;
+    return levels.map((level) => {
+      const total =
+        lifecycleData.toLearn.filter((card) => card.level === level).length +
+        lifecycleData.learning.filter((card) => card.level === level).length +
+        lifecycleData.mastered.filter((card) => card.level === level).length;
+      const mastered = lifecycleData.mastered.filter((card) => card.level === level).length;
+      const percent = total ? Math.round((mastered / total) * 100) : 0;
+      return { level, total, mastered, percent };
+    });
+  }, [lifecycleData, lifecycleLevels]);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -611,22 +681,26 @@ export default function App() {
                   <div className="pill">{settings.newPerSession} new kanji</div>
                 </div>
               </div>
-              <div className="panel-actions">
-                {(kanjiDeck?.groups || []).map((group) => {
-                  const count = group.cards?.length ?? 0;
-                  const disabled = count === 0;
-                  return (
-                    <button
-                      key={group.id}
-                      className={`chip ${learnLevel === group.id ? "active" : ""}`}
-                      onClick={() => setLearnLevel(group.id)}
-                      disabled={disabled}
-                      title={disabled ? "Coming soon" : `${count} kanji`}
-                    >
-                      {group.id}
-                    </button>
-                  );
-                })}
+              <div className="level-inline">
+                <span className="level-label">Level</span>
+                <button
+                  className="level-pill"
+                  onClick={() => {
+                    setAutoLevel((prev) => !prev);
+                  }}
+                  title={autoLevel ? "Auto level" : "Manual level"}
+                >
+                  {autoLevel ? "Auto" : learnLevel}
+                </button>
+                <button
+                  className="level-change"
+                  onClick={() => {
+                    setAutoLevel(false);
+                    setView("settings");
+                  }}
+                >
+                  Change
+                </button>
               </div>
               <p>
                 Each Kanji is taught inside a real sentence with readings, grammar notes,
@@ -776,6 +850,14 @@ export default function App() {
 
           {reviewStep === "session" && (
             <>
+              <div className="review-top">
+                <div className="review-progress">
+                  <div className="progress-bar thin">
+                    <div className="progress-fill" style={{ width: `${reviewProgress}%` }} />
+                  </div>
+                  <span>{Math.round(reviewProgress)}%</span>
+                </div>
+              </div>
               <div className="panel-title">
                 <h2>Review</h2>
                 <div className="panel-actions">
@@ -791,13 +873,8 @@ export default function App() {
                 answerReady={reveal}
                 onSkip={onSkip}
                 reviewSettings={settings}
+                nextReviewHint={nextReviewHint}
               />
-              <div className="progress">
-                <span>Progress</span>
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${reviewProgress}%` }} />
-                </div>
-              </div>
             </>
           )}
 
@@ -911,6 +988,18 @@ export default function App() {
                 </button>
               </div>
 
+              <div className="level-summary">
+                {levelStats.map((stat) => (
+                  <div key={stat.level} className="level-chip">
+                    <div className="level-title">{stat.level}</div>
+                    <div className="level-percent">{stat.percent}%</div>
+                    <div className="level-sub">
+                      {stat.mastered}/{stat.total} mastered
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               {lifecycleTab === "toLearn" && lifecycleData.suggestion && (
                 <div className="ai-suggestion">
                   <div className="ai-tag">Suggested by AI Tutor</div>
@@ -953,7 +1042,24 @@ export default function App() {
           <div className="panel-title">
             <h2>Settings</h2>
           </div>
-          <div className="settings">
+      <div className="settings">
+            <div className="settings-row">
+              <label htmlFor="learn-level">Learn level</label>
+              <select
+                id="learn-level"
+                value={learnLevel}
+                onChange={(event) => {
+                  setLearnLevel(event.target.value);
+                  setAutoLevel(false);
+                }}
+              >
+                {JLPT_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="settings-row">
               <label htmlFor="new-per-session">New per session</label>
               <input

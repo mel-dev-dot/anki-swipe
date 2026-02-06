@@ -15,7 +15,8 @@ const now = () => Date.now();
 const EASY_MS = 4000;
 const GOOD_MS = 8000;
 
-const getQuality = (isCorrect, answerMs) => {
+const normalizeRating = (rating, answerMs, isCorrect) => {
+  if (typeof rating === "number" && rating > 0) return rating;
   if (!isCorrect) return 2;
   if (!answerMs) return 4;
   if (answerMs <= EASY_MS) return 5;
@@ -23,15 +24,16 @@ const getQuality = (isCorrect, answerMs) => {
   return 3;
 };
 
-const updateReviewCard = (record, isCorrect, answerMs) => {
+const updateReviewCard = (record, rating, answerMs) => {
   const seen = record.seen + 1;
+  const isCorrect = rating >= 3;
   const correct = record.correct + (isCorrect ? 1 : 0);
   const wrong = record.wrong + (isCorrect ? 0 : 1);
   let ease = record.ease ?? 2.5;
   let intervalDays = record.intervalDays ?? 0;
   let reps = record.reps ?? 0;
   let lapses = record.lapses ?? 0;
-  const q = getQuality(isCorrect, answerMs);
+  const q = rating;
 
   if (q < 3) {
     lapses += 1;
@@ -573,7 +575,7 @@ app.post("/api/review/add-cards", async (req, res) => {
 });
 
 app.post("/api/review/answer", async (req, res) => {
-  const { cardId, isCorrect, answerMs } = req.body;
+  const { cardId, isCorrect, answerMs, rating } = req.body;
   if (!cardId) {
     res.status(400).json({ error: "cardId required" });
     return;
@@ -614,7 +616,8 @@ app.post("/api/review/answer", async (req, res) => {
     });
   }
 
-  const updates = updateReviewCard(review, Boolean(isCorrect), Number(answerMs || 0));
+  const resolvedRating = normalizeRating(rating, Number(answerMs || 0), Boolean(isCorrect));
+  const updates = updateReviewCard(review, resolvedRating, Number(answerMs || 0));
 
   const updated = await prisma.reviewCard.update({
     where: { cardId },
