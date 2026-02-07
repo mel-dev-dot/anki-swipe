@@ -6,6 +6,27 @@ const AUTH_BASE = "http://localhost:3001/auth";
 const REVIEW_INTERVALS = [1, 2, 4, 7, 14, 30];
 const JLPT_LEVELS = ["N5", "N4", "N3", "N2", "N1"];
 const DEMO_KANJI_LIMIT = 3;
+const PLANS = [
+  {
+    id: "free",
+    name: "Free",
+    description: "Explore the basics",
+    monthly: 0,
+  },
+  {
+    id: "pro",
+    name: "Pro (Recommended)",
+    description: "Daily study + full SRS",
+    monthly: 9.95,
+    highlight: true,
+  },
+  {
+    id: "master",
+    name: "AI Premium",
+    description: "AI tutoring + personalized feedback",
+    monthly: 14.95,
+  },
+];
 
 const now = () => Date.now();
 
@@ -28,6 +49,18 @@ const formatNextReview = (dueAt) => {
   if (hours < 48) return `${hours} hrs`;
   const days = Math.round(hours / 24);
   return `${days} days`;
+};
+
+const formatPrice = (amount) => {
+  if (amount === 0) return "Free";
+  return `$${amount.toFixed(2)}`;
+};
+
+const planPrice = (plan, cycle) => {
+  if (plan.monthly === 0) return "Free";
+  if (cycle === "monthly") return formatPrice(plan.monthly);
+  const yearly = plan.monthly * 12 * 0.8;
+  return formatPrice(yearly);
 };
 
 const ratingLabel = (rating) => {
@@ -439,6 +472,10 @@ export default function App() {
   const [nextReviewHint, setNextReviewHint] = useState("");
   const [learnUnlocked, setLearnUnlocked] = useState(false);
   const [demoFinished, setDemoFinished] = useState(false);
+  const [billingModalOpen, setBillingModalOpen] = useState(false);
+  const [billingStep, setBillingStep] = useState("plan");
+  const [billingCycle, setBillingCycle] = useState("monthly");
+  const [selectedPlan, setSelectedPlan] = useState("pro");
 
   useEffect(() => {
     const load = async () => {
@@ -452,6 +489,10 @@ export default function App() {
           setReviewCards(mapReviewCards(reviewData));
           const learned = await fetchJSON("/kanji/learned");
           setLearnedCards(learned);
+        if (!me.user.planTier || (me.user.planTier !== "free" && !me.user.hasPaymentMethod)) {
+          setBillingModalOpen(true);
+          setBillingStep("plan");
+        }
         } else {
           setReviewCards({});
           setLearnedCards([]);
@@ -697,6 +738,8 @@ export default function App() {
       setDemoFinished(false);
       setReviewCards({});
       setLearnedCards([]);
+      setBillingModalOpen(false);
+      setBillingStep("plan");
     } catch (error) {
       // ignore
     }
@@ -746,6 +789,10 @@ export default function App() {
         setReviewCards(mapReviewCards(reviewData));
         const learned = await fetchJSON("/kanji/learned");
         setLearnedCards(learned);
+        if (!data.user.planTier || (data.user.planTier !== "free" && !data.user.hasPaymentMethod)) {
+          setBillingModalOpen(true);
+          setBillingStep("plan");
+        }
       } catch (error) {
         // ignore
       }
@@ -826,6 +873,34 @@ export default function App() {
 
   const onLearnPrev = () => {
     setSessionIndex((prev) => Math.max(0, prev - 1));
+  };
+
+  const completeSubscription = async () => {
+    try {
+      const payload = {
+        planTier: selectedPlan,
+        billingCycle,
+      };
+      const result = await fetchJSON("/billing/subscribe", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setAuthUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              planTier: result.planTier,
+              billingCycle: result.billingCycle,
+              planStatus: result.planStatus,
+              hasPaymentMethod: result.hasPaymentMethod,
+            }
+          : prev
+      );
+      setBillingModalOpen(false);
+      setBillingStep("plan");
+    } catch (error) {
+      // ignore for now
+    }
   };
 
   const seedAllToReview = () =>
@@ -1458,6 +1533,129 @@ export default function App() {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {billingModalOpen && authUser && (
+        <div className="billing-modal">
+          <div className="billing-backdrop" />
+          <div className="billing-dialog">
+            {billingStep === "plan" && (
+              <>
+                <div className="billing-header">
+                  <h3>Choose your plan</h3>
+                  <p>Save your Kanji, track progress, and unlock spaced repetition.</p>
+                </div>
+                <div className="billing-toggle">
+                  <button
+                    className={billingCycle === "monthly" ? "active" : ""}
+                    onClick={() => setBillingCycle("monthly")}
+                  >
+                    Monthly
+                  </button>
+                  <button
+                    className={billingCycle === "yearly" ? "active" : ""}
+                    onClick={() => setBillingCycle("yearly")}
+                  >
+                    Yearly <span>Save 20%</span>
+                  </button>
+                </div>
+                <div className="billing-grid">
+                  {PLANS.map((plan) => (
+                    <button
+                      key={plan.id}
+                      className={`plan-card ${selectedPlan === plan.id ? "selected" : ""} ${
+                        plan.highlight ? "highlight" : ""
+                      }`}
+                      onClick={() => setSelectedPlan(plan.id)}
+                    >
+                      {plan.highlight && <div className="plan-badge">Most Popular</div>}
+                      <div className="plan-name">{plan.name}</div>
+                      <div className="plan-price">
+                        {planPrice(plan, billingCycle)}
+                        {plan.monthly > 0 && (
+                          <span>/{billingCycle === "monthly" ? "mo" : "yr"}</span>
+                        )}
+                      </div>
+                      <div className="plan-desc">{plan.description}</div>
+                      <ul className="plan-features">
+                        {plan.id === "free" && (
+                          <>
+                            <li>Limited daily cards</li>
+                            <li>Basic progress tracking</li>
+                            <li>No AI tutoring</li>
+                          </>
+                        )}
+                        {plan.id === "pro" && (
+                          <>
+                            <li>Unlimited daily cards</li>
+                            <li>Full spaced repetition</li>
+                            <li>Progress tracking across devices</li>
+                          </>
+                        )}
+                        {plan.id === "master" && (
+                          <>
+                            <li>AI tutoring + feedback</li>
+                            <li>Pattern insights on weak kanji</li>
+                            <li>Priority AI features</li>
+                          </>
+                        )}
+                      </ul>
+                    </button>
+                  ))}
+                </div>
+                <div className="billing-actions">
+                  <div className="billing-note">No commitments. Cancel anytime.</div>
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      if (selectedPlan === "free") {
+                        completeSubscription();
+                      } else {
+                        setBillingStep("payment");
+                      }
+                    }}
+                  >
+                    {selectedPlan === "free" ? "Continue with Free" : "Continue to payment"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {billingStep === "payment" && (
+              <>
+                <div className="billing-header">
+                  <h3>Add a payment method</h3>
+                  <p>
+                    You selected{" "}
+                    <strong>
+                      {PLANS.find((plan) => plan.id === selectedPlan)?.name}
+                    </strong>{" "}
+                    ({billingCycle}).
+                  </p>
+                </div>
+                <div className="billing-form">
+                  <input type="text" placeholder="Card number" />
+                  <div className="billing-row">
+                    <input type="text" placeholder="MM / YY" />
+                    <input type="text" placeholder="CVC" />
+                  </div>
+                  <input type="text" placeholder="Cardholder name" />
+                </div>
+                <div className="billing-actions">
+                  <button className="ghost" onClick={() => setBillingStep("plan")}>
+                    Back
+                  </button>
+                  <button className="primary" onClick={completeSubscription}>
+                    Activate plan
+                  </button>
+                </div>
+                <div className="billing-note">
+                  By continuing, you agree to our terms. Cancel anytime.
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

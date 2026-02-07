@@ -13,6 +13,10 @@ model User {
   passwordHash String?
   name      String?
   avatarUrl String?
+  planTier  String?
+  billingCycle String?
+  planStatus String?
+  hasPaymentMethod Boolean @default(false)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 

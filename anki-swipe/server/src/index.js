@@ -178,8 +178,28 @@ app.get("/api/auth/me", (req, res) => {
     res.json({ user: null });
     return;
   }
-  const { id, email, name, avatarUrl } = req.user;
-  res.json({ user: { id, email, name, avatarUrl } });
+  const {
+    id,
+    email,
+    name,
+    avatarUrl,
+    planTier,
+    billingCycle,
+    planStatus,
+    hasPaymentMethod,
+  } = req.user;
+  res.json({
+    user: {
+      id,
+      email,
+      name,
+      avatarUrl,
+      planTier,
+      billingCycle,
+      planStatus,
+      hasPaymentMethod,
+    },
+  });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -196,8 +216,28 @@ const loginUser = (req, res, user) =>
       res.status(500).json({ error: "Login failed" });
       return;
     }
-    const { id, email, name, avatarUrl } = user;
-    res.json({ user: { id, email, name, avatarUrl } });
+    const {
+      id,
+      email,
+      name,
+      avatarUrl,
+      planTier,
+      billingCycle,
+      planStatus,
+      hasPaymentMethod,
+    } = user;
+    res.json({
+      user: {
+        id,
+        email,
+        name,
+        avatarUrl,
+        planTier,
+        billingCycle,
+        planStatus,
+        hasPaymentMethod,
+      },
+    });
   });
 
 app.post("/api/auth/register", async (req, res) => {
@@ -258,6 +298,39 @@ const requireAuth = (req, res, next) => {
   }
   next();
 };
+
+app.get("/api/billing/status", requireAuth, async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  res.json({
+    planTier: user?.planTier ?? null,
+    billingCycle: user?.billingCycle ?? null,
+    planStatus: user?.planStatus ?? null,
+    hasPaymentMethod: user?.hasPaymentMethod ?? false,
+  });
+});
+
+app.post("/api/billing/subscribe", requireAuth, async (req, res) => {
+  const { planTier, billingCycle } = req.body || {};
+  if (!planTier || !billingCycle) {
+    res.status(400).json({ error: "planTier and billingCycle required" });
+    return;
+  }
+  const updated = await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      planTier,
+      billingCycle,
+      planStatus: "active",
+      hasPaymentMethod: planTier === "free" ? false : true,
+    },
+  });
+  res.json({
+    planTier: updated.planTier,
+    billingCycle: updated.billingCycle,
+    planStatus: updated.planStatus,
+    hasPaymentMethod: updated.hasPaymentMethod,
+  });
+});
 
 const MIN_EASE = 1.3;
 const now = () => Date.now();
