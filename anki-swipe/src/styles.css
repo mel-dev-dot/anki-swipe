@@ -584,21 +584,25 @@ p {
   margin: 0 auto;
 }
 
+.learn-card-wrap {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.learn-card-stack {
+  position: relative;
+}
+
+.learn-card {
+  position: relative;
+}
+
 .card-shell.deck {
   position: relative;
   width: min(420px, 80vw);
   min-height: 360px;
   margin: 0 auto;
-}
-
-@media (max-width: 720px) {
-  .learn-nav.prev {
-    left: 8px;
-  }
-
-  .learn-nav.next {
-    right: 8px;
-  }
 }
 
 .card-stack-bg {
@@ -635,15 +639,14 @@ p {
   align-items: center;
   justify-content: center;
   font-size: 1.2rem;
-  z-index: 5;
 }
 
 .learn-nav.prev {
-  left: -72px;
+  left: -64px;
 }
 
 .learn-nav.next {
-  right: -72px;
+  right: -64px;
 }
 
 .learn-nav.disabled {
@@ -653,6 +656,16 @@ p {
 
 .learn-nav:hover {
   transform: translateY(-50%);
+}
+
+@media (max-width: 720px) {
+  .learn-nav.prev {
+    left: -28px;
+  }
+
+  .learn-nav.next {
+    right: -28px;
+  }
 }
 
 .learn-header {
@@ -769,6 +782,53 @@ p {
 .learn-hint {
   color: #f2b7a8;
   font-size: 0.85rem;
+}
+
+.learned-list {
+  margin: 16px 0 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.learned-title {
+  font-weight: 600;
+}
+
+.learned-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.learned-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.learned-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.learned-kanji {
+  font-size: 2rem;
+  font-family: "Fraunces", serif;
+}
+
+.learned-line {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings {

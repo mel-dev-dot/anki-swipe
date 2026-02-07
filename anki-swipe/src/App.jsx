@@ -207,7 +207,7 @@ const splitRomaji = (romaji) => {
   return { on, kun };
 };
 
-const LearnCard = ({ card, onNext, onPrev, canPrev, canNext, queueCount }) => {
+const LearnCard = ({ card, onNext, onPrev, canPrev, canNext, queueCount, showNav = true }) => {
   if (!card) return null;
   const { on, kun } = splitRomaji(card.romaji);
   const [isSwiping, setIsSwiping] = useState(false);
@@ -228,58 +228,66 @@ const LearnCard = ({ card, onNext, onPrev, canPrev, canNext, queueCount }) => {
   return (
     <div className="learn-shell">
       <div className="learn-deck">
-        {Array.from({ length: Math.max(0, Math.min(queueCount, 4)) }).map((_, idx) => (
-          <div
-            key={`stack-${idx}`}
-            className="card-stack-bg"
-            style={{
-              transform: `translate(${(idx + 1) * 12}px, ${(idx + 1) * 12}px) scale(${1 -
-                (idx + 1) * 0.015})`,
-              opacity: 0.45 - idx * 0.08,
-            }}
-          />
-        ))}
-        <div
-          className={`learn-card ${isSwiping ? "is-swiping" : ""}`}
-        >
-        <div className="learn-header">
-          <div className="kanji-glyph">{card.script}</div>
-          <div className="kanji-meta">
-            <div className="meaning">{card.meaning}</div>
-            <div className="reading">
-              On: {card.onyomi} {on ? `(${on})` : ""}
-            </div>
-            <div className="reading">
-              Kun: {card.kunyomi} {kun ? `(${kun})` : ""}
+        <div className="learn-card-wrap">
+          {showNav && (
+            <button
+              className={`learn-nav prev ${canPrev ? "" : "disabled"}`}
+              type="button"
+              onClick={() => {
+                if (canPrev) onPrev();
+              }}
+              aria-label="Previous kanji"
+              disabled={!canPrev}
+            >
+              ←
+            </button>
+          )}
+          <div className="learn-card-stack">
+            {Array.from({ length: Math.max(0, Math.min(queueCount, 4)) }).map((_, idx) => (
+              <div
+                key={`stack-${idx}`}
+                className="card-stack-bg"
+                style={{
+                  transform: `translate(${(idx + 1) * 12}px, ${(idx + 1) * 12}px) scale(${1 -
+                    (idx + 1) * 0.015})`,
+                  opacity: 0.45 - idx * 0.08,
+                }}
+              />
+            ))}
+            <div className={`learn-card ${isSwiping ? "is-swiping" : ""}`}>
+              <div className="learn-header">
+                <div className="kanji-glyph">{card.script}</div>
+                <div className="kanji-meta">
+                  <div className="meaning">{card.meaning}</div>
+                  <div className="reading">
+                    On: {card.onyomi} {on ? `(${on})` : ""}
+                  </div>
+                  <div className="reading">
+                    Kun: {card.kunyomi} {kun ? `(${kun})` : ""}
+                  </div>
+                </div>
+              </div>
+              <ExampleSentence examples={card.examples} kanji={card.script} />
             </div>
           </div>
+          {showNav && (
+            <button
+              className={`learn-nav next ${canNext ? "" : "disabled"}`}
+              type="button"
+              onClick={handleNext}
+              aria-label="Next kanji"
+              disabled={!canNext}
+            >
+              →
+            </button>
+          )}
         </div>
-        <ExampleSentence examples={card.examples} kanji={card.script} />
+      </div>
+      {showNav && (
+        <div className="learn-actions">
+          <span className="learn-hint">Use arrows to navigate</span>
         </div>
-        <button
-          className={`learn-nav prev ${canPrev ? "" : "disabled"}`}
-          type="button"
-          onClick={() => {
-            if (canPrev) onPrev();
-          }}
-          aria-label="Previous kanji"
-          disabled={!canPrev}
-        >
-          ←
-        </button>
-        <button
-          className={`learn-nav next ${canNext ? "" : "disabled"}`}
-          type="button"
-          onClick={handleNext}
-          aria-label="Next kanji"
-          disabled={!canNext}
-        >
-          →
-        </button>
-      </div>
-      <div className="learn-actions">
-        <span className="learn-hint">Use arrows to navigate</span>
-      </div>
+      )}
     </div>
   );
 };
@@ -512,6 +520,32 @@ export default function App() {
       }
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("billing") !== "success") return;
+    const refreshAfterBilling = async () => {
+      try {
+        const me = await fetchJSON("/auth/me");
+        setAuthUser(me.user);
+        if (me.user) {
+          const reviewData = await fetchJSON("/review");
+          setReviewCards(mapReviewCards(reviewData));
+          const learned = await fetchJSON("/kanji/learned");
+          setLearnedCards(learned);
+          if (!me.user.planTier || (me.user.planTier !== "free" && !me.user.hasPaymentMethod)) {
+            setBillingModalOpen(true);
+            setBillingStep("plan");
+          } else {
+            setBillingModalOpen(false);
+          }
+        }
+      } catch (error) {
+        // ignore
+      }
+    };
+    refreshAfterBilling();
   }, []);
 
   const refreshReview = async () => {
@@ -828,6 +862,22 @@ export default function App() {
     }
   };
 
+  const openLearnedCard = async (cardId) => {
+    if (!authUser) {
+      setAuthModalOpen(true);
+      return;
+    }
+    try {
+      const card = await fetchJSON(`/kanji/card/${cardId}`);
+      startLearningSession([card], 0, "results");
+      setLearningReturn({ view: "learn", learnStep: "complete" });
+      setView("learn");
+      setLearnStep("session");
+    } catch (error) {
+      // ignore
+    }
+  };
+
   const onLearnNext = async () => {
     const card = sessionCards[sessionIndex];
     if (!card) return;
@@ -1077,6 +1127,9 @@ export default function App() {
                         if (learningReturn.view === "review") {
                           setReviewStep(learningReturn.step);
                         }
+                        if (learningReturn.view === "learn") {
+                          setLearnStep(learningReturn.learnStep || "session");
+                        }
                         setLearningReturn(null);
                       }}
                     >
@@ -1111,6 +1164,7 @@ export default function App() {
                     canPrev={sessionIndex > 0}
                     canNext={sessionCards.length > 0 && !demoFinished}
                     queueCount={Math.max(0, sessionCards.length - sessionIndex - 1)}
+                    showNav={learningMode !== "results"}
                   />
                 </div>
               </div>
@@ -1128,6 +1182,34 @@ export default function App() {
             <>
               <h2>Session complete</h2>
               <p>Great work. Your learned Kanji were added to review automatically.</p>
+              {sessionSeen.size > 0 && (
+                <div className="learned-list">
+                  <div className="learned-title">Just learned</div>
+                  <div className="learned-cards">
+                    {Array.from(sessionSeen).map((id) => {
+                      const item =
+                        sessionCards.find((card) => card.id === id) ||
+                        learnedCards.find((card) => card.id === id);
+                      if (!item) return null;
+                      const jpReading = [item.kunyomi, item.onyomi].filter(Boolean).join(" / ");
+                      const line = [jpReading, item.romaji, item.meaning].filter(Boolean).join(" • ");
+                      return (
+                        <button
+                          key={id}
+                          className="learned-card"
+                          onClick={() => openLearnedCard(id)}
+                          type="button"
+                        >
+                          <div className="learned-kanji">{item.script}</div>
+                          <div className="learned-line" title={line || "—"}>
+                            {line || "—"}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <button className="primary" onClick={loadKanjiLesson}>
                 Learn next {settings.newPerSession}
               </button>
