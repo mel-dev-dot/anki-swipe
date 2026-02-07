@@ -67,6 +67,88 @@ p {
   border-radius: 999px;
 }
 
+.account-pill {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.account-menu {
+  position: relative;
+}
+
+.account-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  border: none;
+  z-index: 10;
+}
+
+.account-dropdown {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  background: rgba(20, 17, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  z-index: 11;
+  min-width: 180px;
+}
+
+.account-dropdown button {
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.account-dropdown button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.auth-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+}
+
+.auth-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 5, 15, 0.7);
+  border: none;
+}
+
+.auth-dialog {
+  position: relative;
+  z-index: 31;
+  background: rgba(20, 17, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 20px;
+  width: min(420px, 90vw);
+  display: grid;
+  gap: 12px;
+}
+
+.auth-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: #fff;
+  border: none;
+}
+
 .tab {
   border: none;
   background: transparent;
@@ -248,11 +330,32 @@ p {
   margin: 6px 0;
 }
 
+.muted {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .learn-shell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
+  position: relative;
+}
+
+.learn-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+.learn-blur {
+  filter: blur(10px);
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .learn-card {
@@ -266,6 +369,7 @@ p {
   position: relative;
   z-index: 2;
 }
+
 
 .learn-card.is-swiping {
   transform: translateX(60px);
@@ -476,6 +580,84 @@ p {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.auth-row {
+  align-items: flex-start;
+}
+
+.auth-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 12px;
+  width: min(420px, 100%);
+}
+
+.auth-screen {
+  display: grid;
+  gap: 24px;
+}
+
+.auth-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.auth-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.auth-divider {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.auth-error {
+  color: rgba(255, 107, 107, 0.9);
+  font-size: 0.85rem;
+}
+
+.auth-switch {
+  justify-self: start;
+}
+
+.auth-user {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.auth-name {
+  font-weight: 600;
+}
+
+.auth-email {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
 }
 
 .settings-row input[type="number"] {
@@ -714,6 +896,42 @@ button:disabled {
   margin-top: 16px;
   display: flex;
   gap: 12px;
+}
+
+.learn-preview {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+
+.learn-preview-card {
+  width: min(520px, 90vw);
+  height: 280px;
+  border-radius: 24px;
+  background: linear-gradient(160deg, rgba(58, 39, 83, 0.5), rgba(26, 16, 38, 0.5));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  filter: blur(1.8px);
+  opacity: 0.6;
+}
+
+.learn-preview-card.unblur {
+  filter: blur(0px);
+  opacity: 1;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+}
+
+.learn-preview-kanji {
+  font-size: 5rem;
+  font-weight: 700;
+}
+
+.learn-preview-text {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .level-inline {

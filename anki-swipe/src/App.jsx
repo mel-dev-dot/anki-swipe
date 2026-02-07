@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { DECKS as FALLBACK_DECKS } from "./data/japanese.js";
 
 const API_BASE = "http://localhost:3001/api";
+const AUTH_BASE = "http://localhost:3001/auth";
 const REVIEW_INTERVALS = [1, 2, 4, 7, 14, 30];
 const JLPT_LEVELS = ["N5", "N4", "N3", "N2", "N1"];
+const DEMO_KANJI_LIMIT = 3;
 
 const now = () => Date.now();
 
@@ -61,10 +63,20 @@ const ratingClass = (rating) => {
 const fetchJSON = async (path, options) => {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     ...options,
   });
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.error) message = data.error;
+    } catch (error) {
+      // ignore
+    }
+    const err = new Error(message);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 };
@@ -387,11 +399,17 @@ export default function App() {
   const [reviewCards, setReviewCards] = useState({});
   const [learnedCards, setLearnedCards] = useState([]);
   const [view, setView] = useState("learn");
-  const [learnStep, setLearnStep] = useState("intro");
+  const [learnStep, setLearnStep] = useState("session");
   const [reviewStep, setReviewStep] = useState("hub");
   const [reviewDeckId, setReviewDeckId] = useState("kanji");
   const [learnLevel, setLearnLevel] = useState("N5");
   const [learnError, setLearnError] = useState("");
+  const [authUser, setAuthUser] = useState(null);
+  const [authError, setAuthError] = useState("");
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [lifecycleLevels, setLifecycleLevels] = useState(JLPT_LEVELS);
   const [lifecycleTab, setLifecycleTab] = useState("toLearn");
   const [lifecycleData, setLifecycleData] = useState({
@@ -400,6 +418,7 @@ export default function App() {
     mastered: [],
     suggestion: null,
   });
+  const [lifecycleRefresh, setLifecycleRefresh] = useState(0);
   const [settings, setSettings] = useState({
     newPerSession: 10,
     reviewLimit: 10,
@@ -418,16 +437,25 @@ export default function App() {
   const [learningMode, setLearningMode] = useState("normal");
   const [autoLevel, setAutoLevel] = useState(true);
   const [nextReviewHint, setNextReviewHint] = useState("");
+  const [learnUnlocked, setLearnUnlocked] = useState(false);
+  const [demoFinished, setDemoFinished] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
         const deckData = await fetchJSON("/decks");
         setDecks(deckData);
-        const reviewData = await fetchJSON("/review");
-        setReviewCards(mapReviewCards(reviewData));
-        const learned = await fetchJSON("/kanji/learned");
-        setLearnedCards(learned);
+        const me = await fetchJSON("/auth/me");
+        setAuthUser(me.user);
+        if (me.user) {
+          const reviewData = await fetchJSON("/review");
+          setReviewCards(mapReviewCards(reviewData));
+          const learned = await fetchJSON("/kanji/learned");
+          setLearnedCards(learned);
+        } else {
+          setReviewCards({});
+          setLearnedCards([]);
+        }
         setApiStatus("ok");
       } catch (error) {
         setApiStatus("error");
@@ -439,11 +467,19 @@ export default function App() {
   }, []);
 
   const refreshReview = async () => {
+    if (!authUser) {
+      setReviewCards({});
+      return;
+    }
     const reviewData = await fetchJSON("/review");
     setReviewCards(mapReviewCards(reviewData));
   };
 
   const refreshLearned = async () => {
+    if (!authUser) {
+      setLearnedCards([]);
+      return;
+    }
     try {
       const learned = await fetchJSON("/kanji/learned");
       setLearnedCards(learned);
@@ -453,6 +489,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!authUser) return;
     if (view !== "library") return;
     const loadLifecycle = async () => {
       try {
@@ -471,7 +508,17 @@ export default function App() {
       }
     };
     loadLifecycle();
-  }, [view, lifecycleLevels]);
+  }, [view, lifecycleLevels, lifecycleRefresh]);
+
+  useEffect(() => {
+    if (view !== "learn") return;
+    if (learnStep !== "session") return;
+    if (sessionCards.length) return;
+    if (learnError) return;
+    loadKanjiLesson();
+  }, [view, learnStep, sessionCards.length, authUser, learnError]);
+
+  const refreshLifecycle = () => setLifecycleRefresh((prev) => prev + 1);
 
   const startLearningSession = (cards, index = 0, mode = "normal") => {
     setSessionCards([...cards]);
@@ -494,6 +541,24 @@ export default function App() {
   };
   const loadKanjiLesson = async () => {
     try {
+      setLearnStep("session");
+      setLearnUnlocked(false);
+      setDemoFinished(false);
+
+      if (!authUser) {
+        const demoCards = await fetchJSON(
+          `/demo/kanji/learn?limit=${DEMO_KANJI_LIMIT}&level=N5`
+        );
+        if (!demoCards.length) {
+          setLearnError("Demo is unavailable right now.");
+          return;
+        }
+        setLearnError("");
+        startLearningSession(demoCards);
+        setLearnUnlocked(false);
+        return;
+      }
+
       let level = learnLevel;
       if (autoLevel) {
         const levels = JLPT_LEVELS;
@@ -519,19 +584,23 @@ export default function App() {
       }
       if (!cards.length) {
         setLearnError(`No kanji available for ${learnLevel} yet.`);
-        setLearnStep("complete");
+        setLearnStep("session");
         return;
       }
       setLearnError("");
       startLearningSession(cards);
-      setLearnStep("session");
+      setLearnUnlocked(false);
     } catch (error) {
       setLearnError("Could not load kanji lesson. Is the server running?");
-      setLearnStep("complete");
+      setLearnStep("session");
     }
   };
 
   const onStartReview = async (targetDeckId = "kanji") => {
+    if (!authUser) {
+      setAuthModalOpen(true);
+      return;
+    }
     setReviewDeckId(targetDeckId);
     try {
       const query = targetDeckId ? `deckId=${targetDeckId}` : "";
@@ -608,7 +677,88 @@ export default function App() {
     setSessionStartedAt(now());
   };
 
+  const loginWithGoogle = () => {
+    window.location.href = `${AUTH_BASE}/google`;
+  };
+
+  const loginWithApple = () => {
+    window.location.href = `${AUTH_BASE}/apple`;
+  };
+
+  const logout = async () => {
+    try {
+      await fetchJSON("/auth/logout", { method: "POST" });
+      setAuthUser(null);
+      setAccountMenuOpen(false);
+      setView("learn");
+      setLearnStep("session");
+      setSessionCards([]);
+      setSessionSeen(new Set());
+      setDemoFinished(false);
+      setReviewCards({});
+      setLearnedCards([]);
+    } catch (error) {
+      // ignore
+    }
+  };
+
+  const submitAuth = async (event) => {
+    event.preventDefault();
+    setAuthError("");
+    try {
+      const payload =
+        authMode === "register"
+          ? {
+              name: authForm.name,
+              email: authForm.email,
+              password: authForm.password,
+            }
+          : {
+              email: authForm.email,
+              password: authForm.password,
+            };
+      const data = await fetchJSON(`/auth/${authMode}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setAuthUser(data.user);
+      setAuthForm({ name: "", email: "", password: "" });
+      setAuthModalOpen(false);
+      setView("learn");
+      setLearnStep("session");
+      const pendingDemo = sessionSeen.size ? Array.from(sessionSeen) : [];
+      if (pendingDemo.length) {
+        try {
+          await fetchJSON("/review/add-cards", {
+            method: "POST",
+            body: JSON.stringify({ cardIds: pendingDemo }),
+          });
+        } catch (error) {
+          // ignore
+        }
+      }
+      setSessionCards([]);
+      setSessionSeen(new Set());
+      setDemoFinished(false);
+      setLearnError("");
+      try {
+        const reviewData = await fetchJSON("/review");
+        setReviewCards(mapReviewCards(reviewData));
+        const learned = await fetchJSON("/kanji/learned");
+        setLearnedCards(learned);
+      } catch (error) {
+        // ignore
+      }
+    } catch (error) {
+      setAuthError(error.message || "Authentication failed");
+    }
+  };
+
   const openKanjiCard = async (cardId) => {
+    if (!authUser) {
+      setAuthModalOpen(true);
+      return;
+    }
     try {
       const card = await fetchJSON(`/kanji/card/${cardId}`);
       startLearningSession([card]);
@@ -624,6 +774,22 @@ export default function App() {
     const card = sessionCards[sessionIndex];
     if (!card) return;
 
+    if (!authUser) {
+      setSessionSeen((prev) => {
+        const next = new Set(prev);
+        next.add(card.id);
+        return next;
+      });
+
+      if (sessionIndex + 1 >= sessionCards.length) {
+        setDemoFinished(true);
+        setAuthModalOpen(true);
+        return;
+      }
+      setSessionIndex((prev) => prev + 1);
+      return;
+    }
+
     if (learningMode === "normal") {
       setSessionSeen((prev) => {
         const next = new Set(prev);
@@ -638,6 +804,7 @@ export default function App() {
         });
         refreshReview();
         refreshLearned();
+        refreshLifecycle();
       } catch (error) {
         // ignore for now
       }
@@ -647,7 +814,7 @@ export default function App() {
       if (learningMode === "results") {
         setView("review");
         setReviewStep("complete");
-        setLearnStep("intro");
+        setLearnStep("session");
         setLearningMode("normal");
         return;
       }
@@ -675,7 +842,7 @@ export default function App() {
         refreshReview();
         refreshLearned();
         setLearnError("");
-        setLearnStep("intro");
+        setLearnStep("session");
       })
       .catch(() => {});
 
@@ -714,6 +881,8 @@ export default function App() {
     });
   }, [lifecycleData, lifecycleLevels]);
 
+  const isAuthed = Boolean(authUser);
+
   return (
     <div className="app">
       <header className="app-header">
@@ -725,178 +894,124 @@ export default function App() {
           )}
         </div>
         <div className="tabs">
-          <button
-            className={`tab ${view === "learn" ? "active" : ""}`}
-            onClick={() => {
-              setView("learn");
-              setLearnStep("intro");
-              refreshLearned();
-            }}
-          >
-            Learn
-          </button>
-          <button
-            className={`tab ${view === "review" ? "active" : ""}`}
-            onClick={() => {
-              setView("review");
-              setReviewStep("hub");
-              setReviewDeckId("kanji");
-            }}
-          >
-            Anki Review
-          </button>
-          <button
-            className={`tab ${view === "library" ? "active" : ""}`}
-            onClick={() => {
-              setView("library");
-              setLifecycleTab("toLearn");
-            }}
-          >
-            Kanji Path
-          </button>
-          <button
-            className={`tab ${view === "settings" ? "active" : ""}`}
-            onClick={() => {
-              setView("settings");
-            }}
-          >
-            Settings
-          </button>
+          {authUser ? (
+            <>
+              <button
+                className={`tab ${view === "learn" ? "active" : ""}`}
+                onClick={() => {
+                  setView("learn");
+                  setLearnStep("session");
+                  loadKanjiLesson();
+                  refreshLearned();
+                }}
+              >
+                Learn
+              </button>
+              <button
+                className={`tab ${view === "review" ? "active" : ""}`}
+                onClick={() => {
+                  setView("review");
+                  setReviewStep("hub");
+                  setReviewDeckId("kanji");
+                }}
+              >
+                Anki Review
+              </button>
+              <button
+                className={`tab ${view === "library" ? "active" : ""}`}
+                onClick={() => {
+                  setView("library");
+                  setLifecycleTab("learning");
+                }}
+              >
+                Kanji Path
+              </button>
+            <div className="account-menu">
+              <button
+                className="tab account-pill"
+                onClick={() => setAccountMenuOpen((prev) => !prev)}
+                title={authUser.email || ""}
+              >
+                Account
+              </button>
+              {accountMenuOpen && (
+                <>
+                  <button
+                    className="account-backdrop"
+                    onClick={() => setAccountMenuOpen(false)}
+                    aria-label="Close account menu"
+                  />
+                  <div className="account-dropdown">
+                    <button onClick={() => setView("settings")}>Settings</button>
+                    <button disabled>Subscription</button>
+                    <button disabled>Profile</button>
+                    <button disabled>Change password</button>
+                    <button onClick={logout}>Logout</button>
+                  </div>
+                </>
+              )}
+            </div>
+            </>
+          ) : (
+            null
+          )}
         </div>
       </header>
 
       {view === "learn" && (
         <section className="panel">
-          {learnStep === "intro" && (
-            <>
-              <div className="panel-title">
-                <h2>Learn Kanji in context</h2>
-                <div className="panel-actions">
-                  <div className="pill">{settings.newPerSession} new kanji</div>
-                </div>
-              </div>
-              <div className="level-inline">
-                <span className="level-label">Level</span>
-                <button
-                  className="level-pill"
-                  onClick={() => {
-                    setAutoLevel((prev) => !prev);
-                  }}
-                  title={autoLevel ? "Auto level" : "Manual level"}
-                >
-                  {autoLevel ? "Auto" : learnLevel}
-                </button>
-                <button
-                  className="level-change"
-                  onClick={() => {
-                    setAutoLevel(false);
-                    setView("settings");
-                  }}
-                >
-                  Change
-                </button>
-              </div>
-              <p>
-                Each Kanji is taught inside a real sentence with readings, grammar notes,
-                and word-by-word breakdown.
-              </p>
-              <div className="cta-row">
-                <button className="primary" onClick={loadKanjiLesson}>
-                  Start learning
-                </button>
-              </div>
-              {learnError && <p>{learnError}</p>}
-              <div className="panel-title">
-                <h2>Revisit learned Kanji</h2>
-              </div>
-              {learnedCards.length === 0 ? (
-                <p>No learned kanji yet. Start a lesson to build your knowledge base.</p>
-              ) : (
-                <div className="learned-grid">
-                  {[...learnedCards]
-                    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))
-                    .map((card) => (
-                    <button
-                      key={card.id}
-                      className="learned-card"
-                      onClick={() => {
-                        startLearningSession([card]);
-                        setLearnStep("session");
-                      }}
-                    >
-                      <span className="learned-kanji">{card.script}</span>
-                      <span className="learned-meaning">{card.meaning}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="kana-support">
-                <div className="panel-title">
-                  <h2>Kana Support</h2>
-                </div>
-                <p>Use kana as a reading aid while you focus on Kanji.</p>
-                <div className="kana-columns">
-                  {decks
-                    .filter((deck) => deck.id !== "kanji")
-                    .map((deck) => (
-                      <div key={deck.id} className="kana-block">
-                        <div className="tile-title">
-                          {deck.id === "hiragana" ? "Hiragana" : "Katakana"}
-                        </div>
-                        <div className="tile-sub">Reading aid</div>
-                        {deck.groups.map((group) => (
-                          <div key={group.id} className="kana-group">
-                            <div className="kana-row">
-                              {group.cards.map((card) => (
-                                <span key={card.id} className="kana-char">
-                                  <span className="kana-glyph">{card.script}</span>
-                                  <span className="kana-romaji">{card.romaji}</span>
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </>
-          )}
-
           {learnStep === "session" && (
             <>
               <div className="panel-title">
                 <h2>Learning session</h2>
                 <div className="panel-actions">
-                  <button
-                    className="ghost"
-                    onClick={() => {
-                      if (learningReturn) {
+                  {learningReturn && (
+                    <button
+                      className="ghost"
+                      onClick={() => {
                         setView(learningReturn.view);
                         if (learningReturn.view === "review") {
                           setReviewStep(learningReturn.step);
                         }
                         setLearningReturn(null);
-                        return;
-                      }
-                      setLearnStep("intro");
-                    }}
-                  >
-                    Back
-                  </button>
+                      }}
+                    >
+                      Back
+                    </button>
+                  )}
                 </div>
               </div>
-              <LearnCard
-                card={sessionCards[sessionIndex]}
-                onNext={onLearnNext}
-                onPrev={onLearnPrev}
-                canPrev={sessionIndex > 0}
-                canNext={sessionCards.length > 0}
-                queueCount={Math.max(0, sessionCards.length - sessionIndex - 1)}
-              />
-              <div className="banner">
-                New Kanji this session: {sessionCards.length}
+
+              {learnError && <p>{learnError}</p>}
+
+              <div className="learn-shell">
+                {!learnUnlocked && sessionCards.length > 0 && !learnError && !demoFinished && (
+                  <div className="learn-overlay">
+                    <button className="primary" onClick={() => setLearnUnlocked(true)}>
+                      Start learning
+                    </button>
+                  </div>
+                )}
+                {demoFinished && !isAuthed && (
+                  <div className="learn-overlay">
+                    <button className="primary" onClick={() => setAuthModalOpen(true)}>
+                      Create account to continue
+                    </button>
+                  </div>
+                )}
+                <div className={learnUnlocked ? "" : "learn-blur"}>
+                  <LearnCard
+                    card={sessionCards[sessionIndex]}
+                    onNext={onLearnNext}
+                    onPrev={onLearnPrev}
+                    canPrev={sessionIndex > 0}
+                    canNext={sessionCards.length > 0 && !demoFinished}
+                    queueCount={Math.max(0, sessionCards.length - sessionIndex - 1)}
+                  />
+                </div>
               </div>
+
+              <div className="banner">New Kanji this session: {sessionCards.length}</div>
             </>
           )}
 
@@ -912,7 +1027,7 @@ export default function App() {
         </section>
       )}
 
-      {view === "review" && (
+      {isAuthed && view === "review" && (
         <section className="panel">
           {reviewStep === "hub" && (
             <>
@@ -1043,7 +1158,7 @@ export default function App() {
         </section>
       )}
 
-      {view === "library" && (
+      {isAuthed && view === "library" && (
         <section className="panel">
           <div className="library-shell">
             <aside className="library-sidebar">
@@ -1141,12 +1256,12 @@ export default function App() {
         </section>
       )}
 
-      {view === "settings" && (
+      {isAuthed && view === "settings" && (
         <section className="panel">
           <div className="panel-title">
             <h2>Settings</h2>
           </div>
-      <div className="settings">
+          <div className="settings">
             <div className="settings-row">
               <label htmlFor="learn-level">Learn level</label>
               <select
@@ -1257,6 +1372,79 @@ export default function App() {
             </div>
           </div>
         </section>
+      )}
+
+      {authModalOpen && (
+        <div className="auth-modal">
+          <button
+            className="auth-backdrop"
+            onClick={() => setAuthModalOpen(false)}
+            aria-label="Close auth modal"
+          />
+          <div className="auth-dialog">
+            <button className="auth-close" onClick={() => setAuthModalOpen(false)}>
+              ×
+            </button>
+            <form className="auth-form" onSubmit={submitAuth}>
+              <div className="auth-title">
+                {authMode === "login" ? "Sign in" : "Create account"}
+              </div>
+              {authMode === "register" && (
+                <input
+                  type="text"
+                  placeholder="Name"
+                  value={authForm.name}
+                  onChange={(event) =>
+                    setAuthForm((prev) => ({ ...prev, name: event.target.value }))
+                  }
+                />
+              )}
+              <input
+                type="email"
+                placeholder="Email"
+                value={authForm.email}
+                onChange={(event) =>
+                  setAuthForm((prev) => ({ ...prev, email: event.target.value }))
+                }
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={authForm.password}
+                onChange={(event) =>
+                  setAuthForm((prev) => ({ ...prev, password: event.target.value }))
+                }
+              />
+              {authError && <div className="auth-error">{authError}</div>}
+              <button className="primary" type="submit">
+                {authMode === "login" ? "Sign in" : "Create account"}
+              </button>
+              <button className="link auth-switch" type="button" disabled>
+                Forgot password
+              </button>
+              <button
+                className="link auth-switch"
+                type="button"
+                onClick={() =>
+                  setAuthMode((prev) => (prev === "login" ? "register" : "login"))
+                }
+              >
+                {authMode === "login"
+                  ? "No account? Create one"
+                  : "Have an account? Sign in"}
+              </button>
+            </form>
+            <div className="auth-divider">or</div>
+            <div className="auth-buttons">
+              <button className="ghost" onClick={loginWithGoogle}>
+                Continue with Google
+              </button>
+              <button className="ghost" onClick={loginWithApple}>
+                Continue with Apple
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

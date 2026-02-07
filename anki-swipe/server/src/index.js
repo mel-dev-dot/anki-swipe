@@ -1,5 +1,10 @@
 import express from "express";
 import cors from "cors";
+import session from "express-session";
+import passport from "passport";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+import AppleStrategy from "passport-apple";
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { generateEnrichment } from "./enrich.js";
 import { getRelatedKanji } from "./kanjiComponents.js";
@@ -7,8 +12,252 @@ import { getRelatedKanji } from "./kanjiComponents.js";
 const prisma = new PrismaClient();
 const app = express();
 
-app.use(cors());
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+app.use(
+  cors({
+    origin: CLIENT_ORIGIN,
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "dev-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    },
+  })
+);
+app.use(passport.initialize());
+app.use(passport.session());
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id } });
+    done(null, user);
+  } catch (error) {
+    done(error);
+  }
+});
+
+const upsertOAuthUser = async ({ provider, providerUserId, email, name, avatarUrl }) => {
+  const existingProvider = await prisma.authProvider.findUnique({
+    where: {
+      provider_providerUserId: {
+        provider,
+        providerUserId,
+      },
+    },
+    include: { user: true },
+  });
+
+  if (existingProvider?.user) {
+    return existingProvider.user;
+  }
+
+  let user = null;
+  if (email) {
+    user = await prisma.user.findUnique({ where: { email } });
+  }
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email: email ?? null,
+        name: name ?? null,
+        avatarUrl: avatarUrl ?? null,
+      },
+    });
+  } else if (!user.name || !user.avatarUrl) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: user.name || name || null,
+        avatarUrl: user.avatarUrl || avatarUrl || null,
+      },
+    });
+  }
+
+  await prisma.authProvider.create({
+    data: {
+      provider,
+      providerUserId,
+      email: email ?? null,
+      userId: user.id,
+    },
+  });
+
+  return user;
+};
+
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      callbackURL: `${process.env.SERVER_BASE_URL || "http://localhost:3001"}/auth/google/callback`,
+    },
+    async (_accessToken, _refreshToken, profile, done) => {
+      try {
+        const email = profile.emails?.[0]?.value;
+        const user = await upsertOAuthUser({
+          provider: "google",
+          providerUserId: profile.id,
+          email,
+          name: profile.displayName,
+          avatarUrl: profile.photos?.[0]?.value,
+        });
+        return done(null, user);
+      } catch (error) {
+        return done(error);
+      }
+    }
+  )
+);
+
+passport.use(
+  new AppleStrategy(
+    {
+      clientID: process.env.APPLE_CLIENT_ID || "",
+      teamID: process.env.APPLE_TEAM_ID || "",
+      keyID: process.env.APPLE_KEY_ID || "",
+      privateKey: process.env.APPLE_PRIVATE_KEY?.replace(/\\n/g, "\n") || "",
+      callbackURL: `${process.env.SERVER_BASE_URL || "http://localhost:3001"}/auth/apple/callback`,
+      scope: ["name", "email"],
+    },
+    async (_accessToken, _refreshToken, idToken, profile, done) => {
+      try {
+        const email = profile?.email;
+        const name =
+          profile?.name ? `${profile.name.firstName || ""} ${profile.name.lastName || ""}`.trim() : null;
+        const user = await upsertOAuthUser({
+          provider: "apple",
+          providerUserId: idToken,
+          email,
+          name: name || null,
+          avatarUrl: null,
+        });
+        return done(null, user);
+      } catch (error) {
+        return done(error);
+      }
+    }
+  )
+);
+
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: `${CLIENT_ORIGIN}/?auth=failed` }),
+  (_req, res) => {
+    res.redirect(`${CLIENT_ORIGIN}/?auth=success`);
+  }
+);
+
+app.get("/auth/apple", passport.authenticate("apple"));
+
+app.post(
+  "/auth/apple/callback",
+  passport.authenticate("apple", { failureRedirect: `${CLIENT_ORIGIN}/?auth=failed` }),
+  (_req, res) => {
+    res.redirect(`${CLIENT_ORIGIN}/?auth=success`);
+  }
+);
+
+app.get("/api/auth/me", (req, res) => {
+  if (!req.user) {
+    res.json({ user: null });
+    return;
+  }
+  const { id, email, name, avatarUrl } = req.user;
+  res.json({ user: { id, email, name, avatarUrl } });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  req.logout(() => {
+    req.session.destroy(() => {
+      res.json({ ok: true });
+    });
+  });
+});
+
+const loginUser = (req, res, user) =>
+  req.login(user, (err) => {
+    if (err) {
+      res.status(500).json({ error: "Login failed" });
+      return;
+    }
+    const { id, email, name, avatarUrl } = user;
+    res.json({ user: { id, email, name, avatarUrl } });
+  });
+
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password, name } = req.body || {};
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password required" });
+    return;
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing?.passwordHash) {
+    res.status(409).json({ error: "Email already registered" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  let user = existing;
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, name: name || null, passwordHash },
+    });
+  } else {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, name: user.name || name || null },
+    });
+  }
+
+  loginUser(req, res, user);
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password required" });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user?.passwordHash) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  loginUser(req, res, user);
+});
+
+const requireAuth = (req, res, next) => {
+  if (!req.user?.id) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  next();
+};
 
 const MIN_EASE = 1.3;
 const now = () => Date.now();
@@ -164,16 +413,58 @@ const mapExample = (example) =>
       }
     : null;
 
-app.get("/api/kanji/learn", async (req, res) => {
+// Demo-only endpoint: lets an unauthenticated user read a few kanji before sign-in.
+// It does NOT write any progress or create review cards.
+app.get("/api/demo/kanji/learn", async (req, res) => {
+  const limit = Math.max(1, Math.min(10, Number(req.query.limit || 3)));
+  const level = String(req.query.level || "N5");
+
+  const cards = await prisma.card.findMany({
+    where: {
+      deckId: "kanji",
+      ...(level ? { groupKey: level } : {}),
+    },
+    orderBy: { order: "asc" },
+    take: limit,
+    include: { examples: true, enrichment: true },
+  });
+
+  const response = cards
+    .map((card) => {
+      const examples = card.examples?.length
+        ? card.examples.map(mapExample)
+        : card.enrichment
+          ? [mapExample(card.enrichment)]
+          : [];
+      if (!examples.length) return null;
+      return {
+        id: card.id,
+        deck: card.deckId,
+        group: card.groupKey,
+        script: card.script,
+        romaji: card.romaji,
+        meaning: card.meaning,
+        onyomi: card.onyomi,
+        kunyomi: card.kunyomi,
+        order: card.order,
+        examples,
+      };
+    })
+    .filter(Boolean);
+
+  res.json(response);
+});
+
+app.get("/api/kanji/learn", requireAuth, async (req, res) => {
   const limit = Number(req.query.limit || 10);
   const level = req.query.level;
-  const progress = await prisma.learningProgress.findUnique({
-    where: { id: "default" },
+  const progress = await prisma.learningProgress.findFirst({
+    where: { userId: req.user.id },
   });
   const startOrder = progress?.nextOrder ?? 0;
 
   const learned = await prisma.reviewCard.findMany({
-    where: { deck: "kanji" },
+    where: { deck: "kanji", userId: req.user.id },
     select: { cardId: true },
   });
   const learnedIds = learned.map((item) => item.cardId);
@@ -216,9 +507,9 @@ app.get("/api/kanji/learn", async (req, res) => {
   res.json(response);
 });
 
-app.get("/api/kanji/learned", async (_req, res) => {
+app.get("/api/kanji/learned", requireAuth, async (req, res) => {
   const learned = await prisma.reviewCard.findMany({
-    where: { deck: "kanji" },
+    where: { deck: "kanji", userId: req.user.id },
     select: { cardId: true },
   });
   const cardIds = learned.map((item) => item.cardId);
@@ -259,7 +550,7 @@ app.get("/api/kanji/learned", async (_req, res) => {
   res.json(response);
 });
 
-app.get("/api/kanji/card/:id", async (req, res) => {
+app.get("/api/kanji/card/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const card = await prisma.card.findUnique({
     where: { id },
@@ -290,7 +581,7 @@ app.get("/api/kanji/card/:id", async (req, res) => {
   });
 });
 
-app.get("/api/kanji/lifecycle", async (req, res) => {
+app.get("/api/kanji/lifecycle", requireAuth, async (req, res) => {
   const levelsParam = String(req.query.levels || "")
     .split(",")
     .map((level) => level.trim())
@@ -302,26 +593,34 @@ app.get("/api/kanji/lifecycle", async (req, res) => {
       deckId: "kanji",
       ...(levels.length ? { groupKey: { in: levels } } : {}),
     },
-    include: { review: true },
     orderBy: { order: "asc" },
   });
+
+  const reviewCards = await prisma.reviewCard.findMany({
+    where: { userId: req.user.id, deck: "kanji" },
+  });
+  const reviewByCardId = reviewCards.reduce((acc, rc) => {
+    acc[rc.cardId] = rc;
+    return acc;
+  }, {});
 
   const toLearn = [];
   const learning = [];
   const mastered = [];
 
   for (const card of cards) {
-    const review = card.review;
-    if (!review || review.seen === 0) {
-      toLearn.push(mapLifecycleCard(card));
+    const review = reviewByCardId[card.id] || null;
+    if (!review) {
+      toLearn.push(mapLifecycleCard({ ...card, review: null }));
     } else if ((review.intervalDays ?? 0) >= 10) {
-      mastered.push(mapLifecycleCard(card));
+      mastered.push(mapLifecycleCard({ ...card, review }));
     } else {
-      learning.push(mapLifecycleCard(card));
+      learning.push(mapLifecycleCard({ ...card, review }));
     }
   }
 
   const lastReviewed = cards
+    .map((card) => ({ ...card, review: reviewByCardId[card.id] || null }))
     .filter((card) => card.review?.lastReviewedAt)
     .sort(
       (a, b) =>
@@ -363,17 +662,20 @@ app.get("/api/kanji/lifecycle", async (req, res) => {
   });
 });
 
-app.get("/api/review", async (_req, res) => {
-  const review = await prisma.reviewCard.findMany();
+app.get("/api/review", requireAuth, async (req, res) => {
+  const review = await prisma.reviewCard.findMany({
+    where: { userId: req.user.id },
+  });
   res.json(review);
 });
 
-app.get("/api/review/due", async (req, res) => {
+app.get("/api/review/due", requireAuth, async (req, res) => {
   const { deckId } = req.query;
   const limit = Number(req.query.limit || 10);
   const reviewCards = await prisma.reviewCard.findMany({
     where: {
       ...(deckId ? { deck: deckId } : {}),
+      userId: req.user.id,
       dueAt: { lte: new Date() },
     },
   });
@@ -427,9 +729,10 @@ app.get("/api/review/due", async (req, res) => {
   res.json(response);
 });
 
-app.post("/api/review/seed", async (_req, res) => {
+app.post("/api/review/seed", requireAuth, async (req, res) => {
   const cards = await prisma.card.findMany();
   const existing = await prisma.reviewCard.findMany({
+    where: { userId: req.user.id },
     select: { cardId: true },
   });
   const existingSet = new Set(existing.map((item) => item.cardId));
@@ -437,7 +740,7 @@ app.post("/api/review/seed", async (_req, res) => {
   const createList = cards
     .filter((card) => !existingSet.has(card.id))
     .map((card) => ({
-      id: `review-${card.id}`,
+      userId: req.user.id,
       cardId: card.id,
       deck: card.deckId,
       group: card.groupKey,
@@ -523,17 +826,17 @@ app.post("/api/kanji/enrich", async (req, res) => {
   res.json({ processed: results.length, results });
 });
 
-app.post("/api/progress/reset", async (_req, res) => {
-  await prisma.reviewCard.deleteMany();
+app.post("/api/progress/reset", requireAuth, async (req, res) => {
+  await prisma.reviewCard.deleteMany({ where: { userId: req.user.id } });
   await prisma.learningProgress.upsert({
-    where: { id: "default" },
+    where: { userId: req.user.id },
     update: { nextOrder: 0 },
-    create: { id: "default", nextOrder: 0 },
+    create: { userId: req.user.id, nextOrder: 0 },
   });
   res.json({ reset: true });
 });
 
-app.post("/api/review/add-group", async (req, res) => {
+app.post("/api/review/add-group", requireAuth, async (req, res) => {
   const { deckId, groupId } = req.body;
   if (!deckId || !groupId) {
     res.status(400).json({ error: "deckId and groupId required" });
@@ -546,6 +849,7 @@ app.post("/api/review/add-group", async (req, res) => {
   });
 
   const existing = await prisma.reviewCard.findMany({
+    where: { userId: req.user.id },
     select: { cardId: true },
   });
   const existingSet = new Set(existing.map((item) => item.cardId));
@@ -553,7 +857,7 @@ app.post("/api/review/add-group", async (req, res) => {
   const createList = cards
     .filter((card) => !existingSet.has(card.id))
     .map((card) => ({
-      id: `review-${card.id}`,
+      userId: req.user.id,
       cardId: card.id,
       deck: card.deckId,
       group: card.groupKey,
@@ -581,7 +885,7 @@ app.post("/api/review/add-group", async (req, res) => {
   res.json({ created: createList.length });
 });
 
-app.post("/api/review/add-cards", async (req, res) => {
+app.post("/api/review/add-cards", requireAuth, async (req, res) => {
   const { cardIds } = req.body;
   if (!Array.isArray(cardIds) || cardIds.length === 0) {
     res.status(400).json({ error: "cardIds required" });
@@ -593,7 +897,7 @@ app.post("/api/review/add-cards", async (req, res) => {
   });
 
   const existing = await prisma.reviewCard.findMany({
-    where: { cardId: { in: cardIds } },
+    where: { userId: req.user.id, cardId: { in: cardIds } },
     select: { cardId: true },
   });
   const existingSet = new Set(existing.map((item) => item.cardId));
@@ -601,7 +905,7 @@ app.post("/api/review/add-cards", async (req, res) => {
   const createList = cards
     .filter((card) => !existingSet.has(card.id))
     .map((card) => ({
-      id: `review-${card.id}`,
+      userId: req.user.id,
       cardId: card.id,
       deck: card.deckId,
       group: card.groupKey,
@@ -631,21 +935,21 @@ app.post("/api/review/add-cards", async (req, res) => {
     return Math.max(max, card.order);
   }, -1);
   if (maxOrder >= 0) {
-    const progress = await prisma.learningProgress.findUnique({
-      where: { id: "default" },
+    const progress = await prisma.learningProgress.findFirst({
+      where: { userId: req.user.id },
     });
     const nextOrder = Math.max(progress?.nextOrder ?? 0, maxOrder + 1);
     await prisma.learningProgress.upsert({
-      where: { id: "default" },
+      where: { userId: req.user.id },
       update: { nextOrder },
-      create: { id: "default", nextOrder },
+      create: { userId: req.user.id, nextOrder },
     });
   }
 
   res.json({ created: createList.length });
 });
 
-app.post("/api/review/answer", async (req, res) => {
+app.post("/api/review/answer", requireAuth, async (req, res) => {
   const { cardId, isCorrect, answerMs, rating } = req.body;
   if (!cardId) {
     res.status(400).json({ error: "cardId required" });
@@ -653,7 +957,7 @@ app.post("/api/review/answer", async (req, res) => {
   }
 
   let review = await prisma.reviewCard.findUnique({
-    where: { cardId },
+    where: { userId_cardId: { userId: req.user.id, cardId } },
   });
 
   if (!review) {
@@ -665,7 +969,7 @@ app.post("/api/review/answer", async (req, res) => {
 
     review = await prisma.reviewCard.create({
       data: {
-        id: `review-${card.id}`,
+        userId: req.user.id,
         cardId: card.id,
         deck: card.deckId,
         group: card.groupKey,
@@ -692,7 +996,7 @@ app.post("/api/review/answer", async (req, res) => {
   const updates = updateReviewCard(review, resolvedRating, Number(answerMs || 0));
 
   const updated = await prisma.reviewCard.update({
-    where: { cardId },
+    where: { userId_cardId: { userId: req.user.id, cardId } },
     data: updates,
   });
 
