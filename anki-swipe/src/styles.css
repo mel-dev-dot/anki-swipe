@@ -306,20 +306,6 @@ p {
   gap: 12px;
 }
 
-.billing-form input {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border-radius: 10px;
-  padding: 10px 12px;
-}
-
-.billing-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
 .auth-content {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -848,9 +834,6 @@ p {
   .billing-actions {
     flex-direction: column;
     align-items: stretch;
-  }
-  .billing-row {
-    grid-template-columns: 1fr;
   }
 }
 

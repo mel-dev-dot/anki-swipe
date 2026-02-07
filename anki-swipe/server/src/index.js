@@ -5,12 +5,16 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import AppleStrategy from "passport-apple";
 import bcrypt from "bcryptjs";
+import Stripe from "stripe";
 import { PrismaClient } from "@prisma/client";
 import { generateEnrichment } from "./enrich.js";
 import { getRelatedKanji } from "./kanjiComponents.js";
 
 const prisma = new PrismaClient();
 const app = express();
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" })
+  : null;
 
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
 app.use(
@@ -19,7 +23,13 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use((req, res, next) => {
+  if (req.originalUrl === "/api/billing/webhook") {
+    next();
+    return;
+  }
+  express.json()(req, res, next);
+});
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "dev-session-secret",
@@ -330,6 +340,108 @@ app.post("/api/billing/subscribe", requireAuth, async (req, res) => {
     planStatus: updated.planStatus,
     hasPaymentMethod: updated.hasPaymentMethod,
   });
+});
+
+const PLAN_PRICE_IDS = {
+  monthly: {
+    pro: process.env.STRIPE_PRICE_PRO_MONTHLY,
+    master: process.env.STRIPE_PRICE_AI_MONTHLY,
+  },
+  yearly: {
+    pro: process.env.STRIPE_PRICE_PRO_YEARLY,
+    master: process.env.STRIPE_PRICE_AI_YEARLY,
+  },
+};
+
+app.post("/api/billing/checkout", requireAuth, async (req, res) => {
+  if (!stripe) {
+    res.status(500).json({ error: "Stripe not configured" });
+    return;
+  }
+  const { planTier, billingCycle } = req.body || {};
+  if (!planTier || !billingCycle) {
+    res.status(400).json({ error: "planTier and billingCycle required" });
+    return;
+  }
+  if (planTier === "free") {
+    res.status(400).json({ error: "Free tier does not require checkout" });
+    return;
+  }
+  const priceId = PLAN_PRICE_IDS[billingCycle]?.[planTier];
+  if (!priceId) {
+    res.status(400).json({ error: "Invalid plan pricing" });
+    return;
+  }
+  const customer =
+    req.user.stripeCustomerId
+      ? { id: req.user.stripeCustomerId }
+      : await stripe.customers.create({
+          email: req.user.email || undefined,
+          name: req.user.name || undefined,
+          metadata: { userId: req.user.id },
+        });
+
+  if (!req.user.stripeCustomerId && customer?.id) {
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { stripeCustomerId: customer.id },
+    });
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer: customer.id,
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${CLIENT_ORIGIN}/?billing=success`,
+    cancel_url: `${CLIENT_ORIGIN}/?billing=cancel`,
+    metadata: {
+      userId: req.user.id,
+      planTier,
+      billingCycle,
+    },
+  });
+
+  res.json({ url: session.url });
+});
+
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  if (!stripe) {
+    res.status(500).send("Stripe not configured");
+    return;
+  }
+  const sig = req.headers["stripe-signature"];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const userId = session.metadata?.userId;
+    const planTier = session.metadata?.planTier;
+    const billingCycle = session.metadata?.billingCycle;
+    if (userId) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          planTier: planTier || "pro",
+          billingCycle: billingCycle || "monthly",
+          planStatus: "active",
+          hasPaymentMethod: true,
+          stripeCustomerId: session.customer || undefined,
+        },
+      });
+    }
+  }
+
+  res.json({ received: true });
 });
 
 const MIN_EASE = 1.3;

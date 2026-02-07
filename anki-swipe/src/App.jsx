@@ -63,6 +63,12 @@ const planPrice = (plan, cycle) => {
   return formatPrice(yearly);
 };
 
+const planLimits = {
+  free: { dailyLimit: 5, ai: false },
+  pro: { dailyLimit: Infinity, ai: false },
+  master: { dailyLimit: Infinity, ai: true },
+};
+
 const ratingLabel = (rating) => {
   switch (rating) {
     case 2:
@@ -476,6 +482,7 @@ export default function App() {
   const [billingStep, setBillingStep] = useState("plan");
   const [billingCycle, setBillingCycle] = useState("monthly");
   const [selectedPlan, setSelectedPlan] = useState("pro");
+  const [stripeCheckoutLoading, setStripeCheckoutLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -613,12 +620,16 @@ export default function App() {
         }
       }
 
+      const currentPlan = authUser?.planTier || "free";
+      const planLimit = planLimits[currentPlan]?.dailyLimit ?? settings.newPerSession;
+      const requested = Math.min(settings.newPerSession, planLimit);
+
       const primary = await fetchJSON(
-        `/kanji/learn?limit=${settings.newPerSession}&level=${level}`
+        `/kanji/learn?limit=${requested}&level=${level}`
       );
       let cards = [...primary];
-      if (cards.length < settings.newPerSession) {
-        const missing = settings.newPerSession - cards.length;
+      if (cards.length < requested) {
+        const missing = requested - cards.length;
         const fallback = await fetchJSON(`/kanji/learn?limit=${missing}`);
         const existing = new Set(cards.map((card) => card.id));
         cards = [...cards, ...fallback.filter((card) => !existing.has(card.id))];
@@ -877,29 +888,47 @@ export default function App() {
 
   const completeSubscription = async () => {
     try {
-      const payload = {
-        planTier: selectedPlan,
-        billingCycle,
-      };
-      const result = await fetchJSON("/billing/subscribe", {
+      if (selectedPlan === "free") {
+        const payload = {
+          planTier: selectedPlan,
+          billingCycle,
+        };
+        const result = await fetchJSON("/billing/subscribe", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setAuthUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                planTier: result.planTier,
+                billingCycle: result.billingCycle,
+                planStatus: result.planStatus,
+                hasPaymentMethod: result.hasPaymentMethod,
+              }
+            : prev
+        );
+        setBillingModalOpen(false);
+        setBillingStep("plan");
+        return;
+      }
+
+      setStripeCheckoutLoading(true);
+      const checkout = await fetchJSON("/billing/checkout", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          planTier: selectedPlan,
+          billingCycle,
+        }),
       });
-      setAuthUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              planTier: result.planTier,
-              billingCycle: result.billingCycle,
-              planStatus: result.planStatus,
-              hasPaymentMethod: result.hasPaymentMethod,
-            }
-          : prev
-      );
-      setBillingModalOpen(false);
-      setBillingStep("plan");
+      if (checkout?.url) {
+        window.location.href = checkout.url;
+      } else {
+        setStripeCheckoutLoading(false);
+      }
     } catch (error) {
       // ignore for now
+      setStripeCheckoutLoading(false);
     }
   };
 
@@ -963,7 +992,7 @@ export default function App() {
       <header className="app-header">
         <div>
           <p className="eyebrow">Kanji-first learning</p>
-          <h1>Kanji in Real Sentences</h1>
+          <h1>Kanjic AI</h1>
           {apiStatus === "error" && (
             <p>API offline — using local decks only.</p>
           )}
@@ -1087,6 +1116,11 @@ export default function App() {
               </div>
 
               <div className="banner">New Kanji this session: {sessionCards.length}</div>
+              {isAuthed && authUser?.planTier === "free" && (
+                <div className="plan-hint">
+                  Free plan: {planLimits.free.dailyLimit} new kanji per session. Upgrade for unlimited.
+                </div>
+              )}
             </>
           )}
 
@@ -1462,7 +1496,7 @@ export default function App() {
             </button>
             <div className="auth-content">
               <div className="auth-promo">
-                <div className="auth-brand">Kanji in Real Sentences</div>
+                <div className="auth-brand">Kanjic AI</div>
                 <h3>Save your Kanji. Track your progress.</h3>
                 <p>
                   Sign in to unlock spaced repetition reviews and keep your learning history.
@@ -1610,14 +1644,15 @@ export default function App() {
                   <button
                     className="primary"
                     onClick={() => {
-                      if (selectedPlan === "free") {
-                        completeSubscription();
-                      } else {
-                        setBillingStep("payment");
-                      }
+                      completeSubscription();
                     }}
+                    disabled={stripeCheckoutLoading}
                   >
-                    {selectedPlan === "free" ? "Continue with Free" : "Continue to payment"}
+                    {selectedPlan === "free"
+                      ? "Continue with Free"
+                      : stripeCheckoutLoading
+                        ? "Redirecting..."
+                        : "Continue to payment"}
                   </button>
                 </div>
               </>
@@ -1635,20 +1670,15 @@ export default function App() {
                     ({billingCycle}).
                   </p>
                 </div>
-                <div className="billing-form">
-                  <input type="text" placeholder="Card number" />
-                  <div className="billing-row">
-                    <input type="text" placeholder="MM / YY" />
-                    <input type="text" placeholder="CVC" />
-                  </div>
-                  <input type="text" placeholder="Cardholder name" />
+                <div className="billing-note">
+                  We’ll send you to Stripe Checkout to securely enter your payment details.
                 </div>
                 <div className="billing-actions">
                   <button className="ghost" onClick={() => setBillingStep("plan")}>
                     Back
                   </button>
-                  <button className="primary" onClick={completeSubscription}>
-                    Activate plan
+                  <button className="primary" onClick={completeSubscription} disabled={stripeCheckoutLoading}>
+                    {stripeCheckoutLoading ? "Redirecting..." : "Continue to Stripe"}
                   </button>
                 </div>
                 <div className="billing-note">
