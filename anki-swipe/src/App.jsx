@@ -1385,63 +1385,78 @@ export default function App() {
             <button className="auth-close" onClick={() => setAuthModalOpen(false)}>
               ×
             </button>
-            <form className="auth-form" onSubmit={submitAuth}>
-              <div className="auth-title">
-                {authMode === "login" ? "Sign in" : "Create account"}
+            <div className="auth-content">
+              <div className="auth-promo">
+                <div className="auth-brand">Kanji in Real Sentences</div>
+                <h3>Save your Kanji. Track your progress.</h3>
+                <p>
+                  Sign in to unlock spaced repetition reviews and keep your learning history.
+                </p>
+                <ul className="auth-list">
+                  <li>Save learned Kanji across devices</li>
+                  <li>Track recall strength and review timing</li>
+                  <li>Access Anki-style spaced repetition</li>
+                  <li>AI tutor insights and premium plans coming soon</li>
+                </ul>
               </div>
-              {authMode === "register" && (
+              <form className="auth-form" onSubmit={submitAuth}>
+                <div className="auth-title">
+                  {authMode === "login" ? "Sign in" : "Create account"}
+                </div>
+                {authMode === "register" && (
+                  <input
+                    type="text"
+                    placeholder="Name"
+                    value={authForm.name}
+                    onChange={(event) =>
+                      setAuthForm((prev) => ({ ...prev, name: event.target.value }))
+                    }
+                  />
+                )}
                 <input
-                  type="text"
-                  placeholder="Name"
-                  value={authForm.name}
+                  type="email"
+                  placeholder="Email"
+                  value={authForm.email}
                   onChange={(event) =>
-                    setAuthForm((prev) => ({ ...prev, name: event.target.value }))
+                    setAuthForm((prev) => ({ ...prev, email: event.target.value }))
                   }
                 />
-              )}
-              <input
-                type="email"
-                placeholder="Email"
-                value={authForm.email}
-                onChange={(event) =>
-                  setAuthForm((prev) => ({ ...prev, email: event.target.value }))
-                }
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={authForm.password}
-                onChange={(event) =>
-                  setAuthForm((prev) => ({ ...prev, password: event.target.value }))
-                }
-              />
-              {authError && <div className="auth-error">{authError}</div>}
-              <button className="primary" type="submit">
-                {authMode === "login" ? "Sign in" : "Create account"}
-              </button>
-              <button className="link auth-switch" type="button" disabled>
-                Forgot password
-              </button>
-              <button
-                className="link auth-switch"
-                type="button"
-                onClick={() =>
-                  setAuthMode((prev) => (prev === "login" ? "register" : "login"))
-                }
-              >
-                {authMode === "login"
-                  ? "No account? Create one"
-                  : "Have an account? Sign in"}
-              </button>
-            </form>
-            <div className="auth-divider">or</div>
-            <div className="auth-buttons">
-              <button className="ghost" onClick={loginWithGoogle}>
-                Continue with Google
-              </button>
-              <button className="ghost" onClick={loginWithApple}>
-                Continue with Apple
-              </button>
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={authForm.password}
+                  onChange={(event) =>
+                    setAuthForm((prev) => ({ ...prev, password: event.target.value }))
+                  }
+                />
+                {authError && <div className="auth-error">{authError}</div>}
+                <button className="primary" type="submit">
+                  {authMode === "login" ? "Sign in" : "Create account"}
+                </button>
+                <button className="link auth-switch" type="button" disabled>
+                  Forgot password
+                </button>
+                <button
+                  className="link auth-switch"
+                  type="button"
+                  onClick={() =>
+                    setAuthMode((prev) => (prev === "login" ? "register" : "login"))
+                  }
+                >
+                  {authMode === "login"
+                    ? "No account? Create one"
+                    : "Have an account? Sign in"}
+                </button>
+                <div className="auth-divider">or</div>
+                <div className="auth-buttons">
+                  <button className="ghost" onClick={loginWithGoogle}>
+                    Continue with Google
+                  </button>
+                  <button className="ghost" onClick={loginWithApple}>
+                    Continue with Apple
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
